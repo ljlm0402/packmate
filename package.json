@@ -1,0 +1,23 @@
+{
+  "name": "packmate",
+  "version": "0.0.1",
+  "description": "Your smart and friendly assistant for dependency updates and cleanup.",
+  "author": "AGUMON",
+  "type": "module",
+  "license": "MIT",
+  "main": "bin/packmate.js",
+  "bin": {
+    "packmate": "bin/packmate.js"
+  },
+  "scripts": {
+    "start": "node bin/packmate.js"
+  },
+  "dependencies": {
+    "chalk": "^5.0.0",
+    "enquirer": "^2.3.6",
+    "fs-extra": "^11.1.1",
+    "globby": "^13.2.2",
+    "npm-check-updates": "^16.14.3",
+    "precinct": "^10.0.0"
+  }
+}
