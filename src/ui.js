@@ -1,66 +1,79 @@
-import { prompt } from 'enquirer';
-import chalk from 'chalk';
-import { execSync } from 'child_process';
-import { detectPackageManager } from './detect-package-manager.js';
+import inquirer from 'inquirer';
+import semver from 'semver';
 
-export async function promptActions(upgrades, unused) {
-  const packageManager = detectPackageManager();
+const COLOR_RESET = '\x1b[0m';
+const COLOR_RED = '\x1b[31m';
+const COLOR_YELLOW = '\x1b[33m';
+const COLOR_GREEN = '\x1b[32m';
 
-  const upgradeChoices = Object.entries(upgrades).map(([pkg, version]) => ({
-    name: pkg,
-    message: `${pkg} → ${version}`,
-    checked: true
-  }));
+function getUpdateType(current, latest) {
+  if (!semver.valid(current) || !semver.valid(latest)) return 'unknown';
+  return semver.diff(current, latest) || 'unknown';
+}
 
-  const unusedChoices = unused.map(pkg => ({
-    name: pkg,
-    message: `${pkg} (unused)`,
-    checked: false
-  }));
+function colorizeUpdateType(type) {
+  switch (type) {
+    case 'major':
+      return `${COLOR_RED}[Major]${COLOR_RESET}`;
+    case 'minor':
+      return `${COLOR_YELLOW}[Minor]${COLOR_RESET}`;
+    case 'patch':
+      return `${COLOR_GREEN}[Patch]${COLOR_RESET}`;
+    default:
+      return '[Unknown]';
+  }
+}
 
-  const { toUpdate } = await prompt({
-    type: 'multiselect',
-    name: 'toUpdate',
-    message: chalk.cyan('업데이트할 패키지를 선택하세요:'),
-    choices: upgradeChoices
+function filterCandidates(candidates, filterOptions = {}) {
+  const { scope, maxVersion } = filterOptions;
+  return candidates.filter(({ name, currentVersion }) => {
+    if (scope && !name.startsWith(scope)) return false;
+    if (maxVersion && semver.valid(currentVersion)) {
+      return semver.lte(currentVersion, maxVersion);
+    }
+    return !maxVersion;
   });
+}
 
-  const { toRemove } = await prompt({
-    type: 'multiselect',
-    name: 'toRemove',
-    message: chalk.red('삭제할 미사용 패키지를 선택하세요:'),
-    choices: unusedChoices
-  });
-
-  const run = (command) => {
-    console.log(chalk.gray(`$ ${command}`));
-    execSync(command, { stdio: 'inherit' });
-  };
-
-  if (toUpdate.length > 0) {
-    console.log(chalk.green('\n📦 Updating packages...'));
-    const updateCommand = {
-      npm: (pkg, ver) => `npm install ${pkg}@${ver}`,
-      yarn: (pkg, ver) => `yarn add ${pkg}@${ver}`,
-      pnpm: (pkg, ver) => `pnpm add ${pkg}@${ver}`
-    }[packageManager];
-
-    toUpdate.forEach(pkg => {
-      const ver = upgrades[pkg];
-      run(updateCommand(pkg, ver));
-    });
+export async function promptUpdateCandidates(candidates, filterOptions = {}) {
+  const filtered = filterCandidates(candidates, filterOptions);
+  if (filtered.length === 0) {
+    console.log('업데이트 가능한 패키지가 없습니다.');
+    return [];
   }
 
-  if (toRemove.length > 0) {
-    console.log(chalk.yellow('\n🧹 Removing unused packages...'));
-    const uninstallCommand = {
-      npm: `npm uninstall ${toRemove.join(' ')}`,
-      yarn: `yarn remove ${toRemove.join(' ')}`,
-      pnpm: `pnpm remove ${toRemove.join(' ')}`
-    }[packageManager];
+  const choices = filtered.map(({ name, currentVersion, latestVersion }) => {
+    const updateType = getUpdateType(currentVersion, latestVersion);
+    const typeLabel = colorizeUpdateType(updateType);
 
-    run(uninstallCommand);
-  }
+    return {
+      name: `${name} (현재: ${currentVersion}, 최신: ${latestVersion}) ${typeLabel}`,
+      value: name,
+      short: name,
+    };
+  });
 
-  console.log(chalk.bold.cyan('\n✅ PackMate 작업 완료!'));
+  const answers = await inquirer.prompt([
+    {
+      type: 'checkbox',
+      name: 'toUpdate',
+      message: '업데이트할 패키지를 선택하세요:',
+      choices,
+      pageSize: 15,
+    },
+  ]);
+  return answers.toUpdate;
+}
+
+export async function promptUnusedPackages(unusedPackages) {
+  const answers = await inquirer.prompt([
+    {
+      type: 'checkbox',
+      name: 'toRemove',
+      message: '삭제할 사용하지 않는 패키지를 선택하세요:',
+      choices: unusedPackages,
+      pageSize: 15,
+    },
+  ]);
+  return answers.toRemove;
 }
