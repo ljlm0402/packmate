@@ -2,7 +2,7 @@ name: Check Dependencies
 
 on:
   schedule:
-    - cron: '0 9 * * 1'  # 매주 월요일 오전 9시
+    - cron: '0 9 * * 1' # 매주 월요일 오전 9시
   workflow_dispatch:
 
 jobs:
