@@ -2,6 +2,7 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import semver from 'semver';
+import process from 'process';
 
 const pkgPath = path.resolve(process.cwd(), 'package.json');
 const nodeModulesPath = path.resolve(process.cwd(), 'node_modules');
@@ -111,7 +112,7 @@ async function updatePackages(pkgNames, packageManager = 'npm') {
       break;
   }
 
-  const pkgList = pkgNames.map(name => `${name}@latest`).join(' ');
+  const pkgList = pkgNames.map((name) => `${name}@latest`).join(' ');
   console.log(`> ${installCmd} ${pkgList}`);
 
   try {
