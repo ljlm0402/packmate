@@ -1,13 +1,56 @@
-# Packmate
+<h1 align="center">
+  <br>
+  <img src="https://github.com/user-attachments/assets/f42b3836-ac28-4d8a-9d20-bdbd7cc7d8b5" alt="Project Logo" width="140" />
+  <br>
+  <br>
+  PackMate
+  <br>
+</h1>
 
-**Your smart and friendly CLI assistant for dependency updates and cleanup.**
+<h4 align="center">♻️ Your smart and friendly CLI assistant for dependency updates and cleanup</h4>
 
-[![npm version](https://img.shields.io/npm/v/packmate.svg)](https://www.npmjs.com/package/packmate)
-[![license: MIT](https://img.shields.io/github/license/ljlm0402/packmate.svg)](./LICENSE)
+<p align ="center">
+    <a href="https://nodei.co/npm/packmate" target="_blank">
+    <img src="https://nodei.co/npm/packmate.png" alt="npm Info" />
+</a>
+
+</p>
+
+<p align="center">
+    <a href="http://npm.im/packmate" target="_blank">
+      <img src="https://img.shields.io/npm/v/packmate.svg" alt="npm Version" />
+    </a>
+    <a href="http://npm.im/packmate" target="_blank">
+      <img src="https://img.shields.io/github/v/release/ljlm0402/packmate" alt="npm Release Version" />
+    </a>
+    <a href="http://npm.im/packmate" target="_blank">
+      <img src="https://img.shields.io/npm/dm/packmate.svg" alt="npm Downloads" />
+    </a>
+    <a href="http://npm.im/packmate" target="_blank">
+      <img src="https://img.shields.io/npm/l/packmate.svg" alt="npm Package License" />
+    </a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/ljlm0402/packmate/stargazers" target="_blank">
+    <img src="https://img.shields.io/github/stars/ljlm0402/packmate" alt="github Stars" />
+  </a>
+  <a href="https://github.com/ljlm0402/packmate/network/members" target="_blank">
+    <img src="https://img.shields.io/github/forks/ljlm0402/packmate" alt="github Forks" />
+  </a>
+  <a href="https://github.com/ljlm0402/packmate/stargazers" target="_blank">
+    <img src="https://img.shields.io/github/contributors/ljlm0402/packmate" alt="github Contributors" />
+  </a>
+  <a href="https://github.com/ljlm0402/packmate/issues" target="_blank">
+    <img src="https://img.shields.io/github/issues/ljlm0402/packmate" alt="github Issues" />
+  </a>
+</p>
+
+<br />
 
 ---
 
-Packmate is a modern CLI tool for managing, updating, and cleaning up your Node.js project dependencies.  
+Packmate is a modern CLI tool for managing, updating, and cleaning up your Node.js project dependencies.
 It supports **npm**, **pnpm**, and **yarn**. With an intuitive interactive UI, Packmate helps you keep your project healthy and up-to-date—faster and safer than ever.
 
 ## 🤖 Why Packmate?
@@ -38,6 +81,7 @@ yarn global add packmate
 ```
 
 You can also run it instantly with:
+
 ```sh
 npx packmate
 ```
@@ -45,6 +89,7 @@ npx packmate
 ## 📝 Usage
 
 From your project root, just run:
+
 ```sh
 packmate
 ```
@@ -107,6 +152,7 @@ All selections (update, remove, install) are interactive.
 ## 🧑‍💻 Contributing
 
 PRs and issues are welcome!
+
 - Fork the repo and submit pull requests.
 - Use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) for commit messages.
 - File bugs or suggestions via [GitHub Issues.](https://github.com/ljlm0402/packmate/issues)
