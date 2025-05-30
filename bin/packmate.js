@@ -4,7 +4,7 @@ import { getUpdateCandidates } from '../src/update-checker.js';
 import { runUnusedCheck } from '../src/unused-checker.js';
 import { detectPackageManager } from '../src/detect-package-manager.js';
 import { select, multiselect, isCancel, cancel, intro, outro, note } from '@clack/prompts';
-import chalk from 'chalk'; // 🎨 컬러 메시지
+import chalk from 'chalk';
 import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
@@ -13,11 +13,16 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 
-// 🔥 병렬 fetch(속도 개선)용 util
+/**
+ * 배열의 모든 항목을 비동기로 병렬 처리하여 결과를 반환합니다. (속도 개선용)
+ */
 async function fetchAll(arr, cb) {
   return Promise.all(arr.map(cb));
 }
 
+/**
+ * package.json에 선언된 의존성 중 설치되지 않은 패키지를 찾아서 반환합니다.
+ */
 function getNotInstalledPackages() {
   const pkgPath = path.resolve(process.cwd(), 'package.json');
   if (!fs.existsSync(pkgPath)) return [];
@@ -34,6 +39,9 @@ function getNotInstalledPackages() {
   return notInstalled;
 }
 
+/**
+ * 지정한 패키지들을 패키지 매니저를 사용해 제거합니다.
+ */
 function uninstallPackages(packages, packageManager) {
   if (packages.length === 0) return;
   let uninstallCmd;
@@ -47,12 +55,15 @@ function uninstallPackages(packages, packageManager) {
   console.log(chalk.yellow(`> ${uninstallCmd} ${pkgList}`));
   try {
     execSync(`${uninstallCmd} ${pkgList}`, { stdio: 'inherit' });
-    console.log(chalk.green(`패키지 삭제 완료: ${pkgList}`));
+    console.log(chalk.green(`Package removal completed: ${pkgList}`));
   } catch (e) {
-    console.error(chalk.red(`패키지 삭제 실패: ${e.message}`));
+    console.error(chalk.red(`Package removal failed: ${e.message}`));
   }
 }
 
+/**
+ * 지정한 패키지들을 패키지 매니저를 사용해 설치합니다.
+ */
 function installPackages(packages, packageManager) {
   if (packages.length === 0) return;
   let installCmd;
@@ -66,13 +77,15 @@ function installPackages(packages, packageManager) {
   console.log(chalk.yellow(`> ${installCmd} ${pkgList}`));
   try {
     execSync(`${installCmd} ${pkgList}`, { stdio: 'inherit' });
-    console.log(chalk.green(`패키지 설치 완료: ${pkgList}`));
+    console.log(chalk.green(`Package install completed: ${pkgList}`));
   } catch (e) {
-    console.error(chalk.red(`패키지 설치 실패: ${e.message}`));
+    console.error(chalk.red(`Package install failed: ${e.message}`));
   }
 }
 
-// major별 최신 추천 + 인기 버전, 최신 버전 추천
+/**
+ * 버전 리스트에서 major별로 최신 버전을 추출하여 추천 목록을 만듭니다.
+ */
 function getRecommendedMajorVersions(versionList, currentVersion) {
   const byMajor = {};
   versionList.forEach(ver => {
@@ -88,7 +101,7 @@ function getRecommendedMajorVersions(versionList, currentVersion) {
 }
 
 async function main() {
-  intro(chalk.cyan('📦 Packmate: 패키지 업데이트/정리'));
+  intro(chalk.cyan('📦 Packmate: Dependency Updates & Cleanup'));
 
   const packageManager = detectPackageManager();
   const unused = await runUnusedCheck();
@@ -96,7 +109,7 @@ async function main() {
   const notInstalled = getNotInstalledPackages();
   const allPkgs = {};
 
-  // 🌟 속도 개선: 병렬로 모든 패키지 버전 fetch!
+  // 업데이트가 필요한 모든 패키지들의 버전 목록을 병렬로 조회합니다.
   const updatePkgVersionLists = await fetchAll(updateCandidates, async c => {
     let versionList = [];
     try {
@@ -110,9 +123,8 @@ async function main() {
   });
 
   for (const c of updatePkgVersionLists) {
-    // major별 최신 추천
+    // major별 최신 버전 추천
     const recommended = getRecommendedMajorVersions(c.versionList, c.currentVersion);
-    // 최신 30개만
     const versions = c.versionList.slice(0, 30).map(ver => ({
       version: ver,
       type: semver.diff(c.currentVersion, ver) || 'major',
@@ -124,12 +136,12 @@ async function main() {
       current: c.currentVersion,
       latest: c.latestVersion,
       versions,
-      status: '업데이트 가능',
+      status: 'Update Available',
       action: 'update'
     };
   }
 
-  // 미사용/미설치/최신버전은 기존대로
+  // 사용되지 않는 패키지 정보 추가
   unused.forEach(dep => {
     if (allPkgs[dep]) return;
     let current = '-';
@@ -142,23 +154,24 @@ async function main() {
       name: dep,
       current,
       latest: '-',
-      status: '미사용',
+      status: 'Unused',
       action: 'remove'
     };
   });
 
+  // 미설치 패키지 정보 추가
   notInstalled.forEach(dep => {
     if (allPkgs[dep]) return;
     allPkgs[dep] = {
       name: dep,
       current: '-',
       latest: '-',
-      status: '미설치',
+      status: 'Not Installed',
       action: 'install'
     };
   });
 
-  // 최신 버전
+  // 이미 최신 버전인 패키지 정보 추가
   const pkgJson = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf-8'));
   const declared = { ...pkgJson.dependencies, ...pkgJson.devDependencies };
   for (const dep of Object.keys(declared)) {
@@ -173,44 +186,43 @@ async function main() {
       name: dep,
       current,
       latest: current,
-      status: '최신 버전',
+      status: 'Latest',
       action: 'latest'
     };
   }
 
-  // 🌈 컬러 표시 + disabled(최신버전)
+  // 유저에게 선택 프롬프트 표시(업데이트, 미사용, 미설치만 선택 가능, 최신버전은 disabled)
   const promptChoices = Object.values(allPkgs).map(pkg => {
     let label = '';
     if (pkg.action === 'update') {
-      label = `${chalk.bold(pkg.name)}  ${chalk.yellow(pkg.current)} ${chalk.white('→')} ${chalk.green(pkg.latest)}  ${chalk.blue('[업데이트 가능]')}`;
+      label = `${chalk.bold(pkg.name)}  ${chalk.yellow(pkg.current)} ${chalk.white('→')} ${chalk.green(pkg.latest)}  ${chalk.blue('[Update Available]')}`;
       return { label, value: `${pkg.name}__update` };
     }
     if (pkg.action === 'remove') {
-      label = `${chalk.bold(pkg.name)}  ${chalk.red(pkg.current)}  ${chalk.red('[미사용]')}`;
+      label = `${chalk.bold(pkg.name)}  ${chalk.red(pkg.current)}  ${chalk.red('[Unused]')}`;
       return { label, value: `${pkg.name}__remove` };
     }
     if (pkg.action === 'install') {
-      label = `${chalk.bold(pkg.name)}  ${chalk.cyan('[미설치]')}`;
+      label = `${chalk.bold(pkg.name)}  ${chalk.cyan('[Not Installed]')}`;
       return { label, value: `${pkg.name}__install` };
     }
-    // 최신버전 (disabled)
-    label = `${chalk.bold(pkg.name)}  ${chalk.green(pkg.current)}  ${chalk.gray('[최신 버전]')}`;
+    label = `${chalk.bold(pkg.name)}  ${chalk.green(pkg.current)}  ${chalk.gray('[Latest]')}`;
     return { label, value: `${pkg.name}__latest`, disabled: true };
   });
 
   const selected = await multiselect({
-    message: '처리할 패키지를 선택하세요:',
+    message: 'Select the packages you want to update/remove/install:',
     options: promptChoices,
     required: false,
     max: 30,
   });
 
   if (isCancel(selected)) {
-    cancel(chalk.red('작업을 취소했습니다.'));
+    cancel(chalk.red('Operation cancelled.'));
     process.exit(0);
   }
 
-  // 업데이트 대상 중 버전 선택(추천 먼저, 나머지 차례로, 중복 제외)
+  // 업데이트 대상 패키지는 추천 버전(major별 최신) 먼저, 나머지는 순차적으로 보여주고 선택
   const updateTo = [];
   for (const sel of selected) {
     if (sel.endsWith('__update')) {
@@ -219,7 +231,7 @@ async function main() {
       const options = [
         ...pkg.versions.filter(v => v.isRecommended)
           .map(v => ({
-            label: chalk.green(`${v.version} (${v.type}) [추천]`),
+            label: chalk.green(`${v.version} (${v.type}) [recommended]`),
             value: v.version,
           })),
         ...pkg.versions.filter(v => !v.isRecommended)
@@ -228,18 +240,17 @@ async function main() {
             value: v.version,
           })),
       ];
-      // 중복 제거
       const optionsUnique = options.filter((item, idx, arr) =>
         arr.findIndex(o => o.value === item.value) === idx
       );
       let versionChoice;
       if (optionsUnique.length > 1) {
         versionChoice = await select({
-          message: `${pkgName} 업데이트 버전을 선택하세요 (현재 ${pkg.current}):`,
+          message: `${pkgName} - choose a version to update (current: ${pkg.current}):`,
           options: optionsUnique,
         });
         if (isCancel(versionChoice)) {
-          cancel(chalk.red('작업을 취소했습니다.'));
+          cancel(chalk.red('Operation cancelled.'));
           process.exit(0);
         }
         updateTo.push({ name: pkgName, version: versionChoice });
@@ -251,12 +262,11 @@ async function main() {
     }
   }
 
-  // 미사용 제거
+  // 제거/설치할 패키지 목록 분리
   const toRemove = selected.filter(sel => sel.endsWith('__remove')).map(sel => sel.split('__')[0]);
-  // 미설치 설치
   const toInstall = selected.filter(sel => sel.endsWith('__install')).map(sel => sel.split('__')[0]);
 
-  // 실제 작업
+  // 실제 업데이트/제거/설치 명령 실행
   for (const item of updateTo) {
     let cmd;
     switch (packageManager) {
@@ -265,12 +275,12 @@ async function main() {
       case 'npm':
       default: cmd = `npm install ${item.name}@${item.version}`; break;
     }
-    note(chalk.cyan(cmd), '실행 명령');
+    note(chalk.cyan(cmd), 'Command');
     try {
       execSync(cmd, { stdio: 'inherit' });
-      note(chalk.green(`패키지 업데이트 완료: ${item.name}@${item.version}`), '성공');
+      note(chalk.green(`✔️ Package update completed: ${item.name}@${item.version}`), 'Success');
     } catch (e) {
-      note(chalk.red(`패키지 업데이트 실패: ${e.message}`), '실패');
+      note(chalk.red(`❌ Package update failed: ${e.message}`), 'Failed');
     }
   }
 
@@ -282,10 +292,10 @@ async function main() {
   }
 
   if (updateTo.length + toRemove.length + toInstall.length === 0) {
-    note(chalk.yellow('선택한 작업이 없습니다.'), '알림');
+    note(chalk.yellow('No operations selected.'), 'Info');
   }
 
-  outro(chalk.bold.cyan('Packmate 완료! 🙌'));
+  outro(chalk.bold.cyan('Packmate done! 🙌'));
 }
 
 main();
