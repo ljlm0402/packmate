@@ -3,7 +3,7 @@ name: Publish to npm
 on:
   push:
     tags:
-      - 'v*.*.*' # 예: v1.2.3
+      - 'v*.*.*' # e.g., v1.2.3
 
 jobs:
   publish:
@@ -20,13 +20,16 @@ jobs:
           node-version: 20
           registry-url: 'https://registry.npmjs.org/'
 
+      - name: Install pnpm
+        run: npm install -g pnpm
+
       - name: Install Dependencies
-        run: npm ci
+        run: pnpm install
 
       - name: Build Project
-        run: npm run build
+        run: pnpm run build
 
       - name: Publish to npm
-        run: npm publish --access public
+        run: pnpm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
