@@ -26,9 +26,6 @@ jobs:
       - name: Install Dependencies
         run: pnpm install
 
-      - name: Build Project
-        run: pnpm run build
-
       - name: Publish to npm
         run: pnpm publish --access public
         env:
