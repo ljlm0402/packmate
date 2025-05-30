@@ -1,6 +1,6 @@
-// ../src/detect-package-manager.js
 import fs from 'fs';
 import path from 'path';
+import process from 'process';
 
 let cachedPackageManager = null;
 

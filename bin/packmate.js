@@ -10,6 +10,7 @@ import path from 'path';
 import { execSync } from 'child_process';
 import semver from 'semver';
 import { createRequire } from 'module';
+import process from 'process';
 
 const require = createRequire(import.meta.url);
 
@@ -32,7 +33,7 @@ function getNotInstalledPackages() {
   for (const dep of Object.keys(allDeps)) {
     try {
       require.resolve(dep, { paths: [process.cwd()] });
-    } catch (e) {
+    } catch {
       notInstalled.push(dep);
     }
   }
@@ -46,10 +47,16 @@ function uninstallPackages(packages, packageManager) {
   if (packages.length === 0) return;
   let uninstallCmd;
   switch (packageManager) {
-    case 'pnpm': uninstallCmd = 'pnpm remove'; break;
-    case 'yarn': uninstallCmd = 'yarn remove'; break;
+    case 'pnpm':
+      uninstallCmd = 'pnpm remove';
+      break;
+    case 'yarn':
+      uninstallCmd = 'yarn remove';
+      break;
     case 'npm':
-    default: uninstallCmd = 'npm uninstall'; break;
+    default:
+      uninstallCmd = 'npm uninstall';
+      break;
   }
   const pkgList = packages.join(' ');
   console.log(chalk.yellow(`> ${uninstallCmd} ${pkgList}`));
@@ -68,12 +75,18 @@ function installPackages(packages, packageManager) {
   if (packages.length === 0) return;
   let installCmd;
   switch (packageManager) {
-    case 'pnpm': installCmd = 'pnpm add'; break;
-    case 'yarn': installCmd = 'yarn add'; break;
+    case 'pnpm':
+      installCmd = 'pnpm add';
+      break;
+    case 'yarn':
+      installCmd = 'yarn add';
+      break;
     case 'npm':
-    default: installCmd = 'npm install'; break;
+    default:
+      installCmd = 'npm install';
+      break;
   }
-  const pkgList = packages.map(pkg => `${pkg}@latest`).join(' ');
+  const pkgList = packages.map((pkg) => `${pkg}@latest`).join(' ');
   console.log(chalk.yellow(`> ${installCmd} ${pkgList}`));
   try {
     execSync(`${installCmd} ${pkgList}`, { stdio: 'inherit' });
@@ -86,9 +99,9 @@ function installPackages(packages, packageManager) {
 /**
  * 버전 리스트에서 major별로 최신 버전을 추출하여 추천 목록을 만듭니다.
  */
-function getRecommendedMajorVersions(versionList, currentVersion) {
+function getRecommendedMajorVersions(versionList) {
   const byMajor = {};
-  versionList.forEach(ver => {
+  versionList.forEach((ver) => {
     const parsed = semver.parse(ver);
     if (!parsed) return;
     const major = parsed.major;
@@ -110,7 +123,7 @@ async function main() {
   const allPkgs = {};
 
   // 업데이트가 필요한 모든 패키지들의 버전 목록을 병렬로 조회합니다.
-  const updatePkgVersionLists = await fetchAll(updateCandidates, async c => {
+  const updatePkgVersionLists = await fetchAll(updateCandidates, async (c) => {
     let versionList = [];
     try {
       const out = execSync(`npm view ${c.name} versions --json`, { encoding: 'utf-8' });
@@ -125,10 +138,10 @@ async function main() {
   for (const c of updatePkgVersionLists) {
     // major별 최신 버전 추천
     const recommended = getRecommendedMajorVersions(c.versionList, c.currentVersion);
-    const versions = c.versionList.slice(0, 30).map(ver => ({
+    const versions = c.versionList.slice(0, 30).map((ver) => ({
       version: ver,
       type: semver.diff(c.currentVersion, ver) || 'major',
-      isRecommended: recommended.includes(ver)
+      isRecommended: recommended.includes(ver),
     }));
 
     allPkgs[c.name] = {
@@ -137,12 +150,12 @@ async function main() {
       latest: c.latestVersion,
       versions,
       status: 'Update Available',
-      action: 'update'
+      action: 'update',
     };
   }
 
   // 사용되지 않는 패키지 정보 추가
-  unused.forEach(dep => {
+  unused.forEach((dep) => {
     if (allPkgs[dep]) return;
     let current = '-';
     try {
@@ -155,19 +168,19 @@ async function main() {
       current,
       latest: '-',
       status: 'Unused',
-      action: 'remove'
+      action: 'remove',
     };
   });
 
   // 미설치 패키지 정보 추가
-  notInstalled.forEach(dep => {
+  notInstalled.forEach((dep) => {
     if (allPkgs[dep]) return;
     allPkgs[dep] = {
       name: dep,
       current: '-',
       latest: '-',
       status: 'Not Installed',
-      action: 'install'
+      action: 'install',
     };
   });
 
@@ -187,12 +200,12 @@ async function main() {
       current,
       latest: current,
       status: 'Latest',
-      action: 'latest'
+      action: 'latest',
     };
   }
 
   // 유저에게 선택 프롬프트 표시(업데이트, 미사용, 미설치만 선택 가능, 최신버전은 disabled)
-  const promptChoices = Object.values(allPkgs).map(pkg => {
+  const promptChoices = Object.values(allPkgs).map((pkg) => {
     let label = '';
     if (pkg.action === 'update') {
       label = `${chalk.bold(pkg.name)}  ${chalk.yellow(pkg.current)} ${chalk.white('→')} ${chalk.green(pkg.latest)}  ${chalk.blue('[Update Available]')}`;
@@ -229,19 +242,21 @@ async function main() {
       const pkgName = sel.split('__')[0];
       const pkg = allPkgs[pkgName];
       const options = [
-        ...pkg.versions.filter(v => v.isRecommended)
-          .map(v => ({
+        ...pkg.versions
+          .filter((v) => v.isRecommended)
+          .map((v) => ({
             label: chalk.green(`${v.version} (${v.type}) [recommended]`),
             value: v.version,
           })),
-        ...pkg.versions.filter(v => !v.isRecommended)
-          .map(v => ({
+        ...pkg.versions
+          .filter((v) => !v.isRecommended)
+          .map((v) => ({
             label: `${v.version} (${v.type})`,
             value: v.version,
           })),
       ];
-      const optionsUnique = options.filter((item, idx, arr) =>
-        arr.findIndex(o => o.value === item.value) === idx
+      const optionsUnique = options.filter(
+        (item, idx, arr) => arr.findIndex((o) => o.value === item.value) === idx,
       );
       let versionChoice;
       if (optionsUnique.length > 1) {
@@ -263,17 +278,27 @@ async function main() {
   }
 
   // 제거/설치할 패키지 목록 분리
-  const toRemove = selected.filter(sel => sel.endsWith('__remove')).map(sel => sel.split('__')[0]);
-  const toInstall = selected.filter(sel => sel.endsWith('__install')).map(sel => sel.split('__')[0]);
+  const toRemove = selected
+    .filter((sel) => sel.endsWith('__remove'))
+    .map((sel) => sel.split('__')[0]);
+  const toInstall = selected
+    .filter((sel) => sel.endsWith('__install'))
+    .map((sel) => sel.split('__')[0]);
 
   // 실제 업데이트/제거/설치 명령 실행
   for (const item of updateTo) {
     let cmd;
     switch (packageManager) {
-      case 'pnpm': cmd = `pnpm add ${item.name}@${item.version}`; break;
-      case 'yarn': cmd = `yarn add ${item.name}@${item.version}`; break;
+      case 'pnpm':
+        cmd = `pnpm add ${item.name}@${item.version}`;
+        break;
+      case 'yarn':
+        cmd = `yarn add ${item.name}@${item.version}`;
+        break;
       case 'npm':
-      default: cmd = `npm install ${item.name}@${item.version}`; break;
+      default:
+        cmd = `npm install ${item.name}@${item.version}`;
+        break;
     }
     note(chalk.cyan(cmd), 'Command');
     try {

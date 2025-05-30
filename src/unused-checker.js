@@ -2,11 +2,15 @@ import fs from 'fs-extra';
 import { globby } from 'globby';
 import precinct from 'precinct';
 import path from 'path';
+import process from 'process';
 
 export async function runUnusedCheck() {
   const pkgPath = path.resolve(process.cwd(), 'package.json');
   const pkgJson = await fs.readJSON(pkgPath);
-  const declared = [...Object.keys(pkgJson.dependencies || {}), ...Object.keys(pkgJson.devDependencies || {})];
+  const declared = [
+    ...Object.keys(pkgJson.dependencies || {}),
+    ...Object.keys(pkgJson.devDependencies || {}),
+  ];
   const used = new Set();
 
   // js/ts 확장자별 precinct 타입 매핑
@@ -31,14 +35,32 @@ export async function runUnusedCheck() {
       deps = [];
     }
 
-    deps.forEach(dep => {
+    deps.forEach((dep) => {
       // 상대 경로나 내부 모듈 제외 (패키지명만 추출)
       if (!dep || dep.startsWith('.') || path.isAbsolute(dep)) return;
-      const pkgName = dep.split('/')[0].startsWith('@') && dep.includes('/') ? dep.split('/').slice(0, 2).join('/') : dep.split('/')[0];
+      const pkgName =
+        dep.split('/')[0].startsWith('@') && dep.includes('/')
+          ? dep.split('/').slice(0, 2).join('/')
+          : dep.split('/')[0];
       used.add(pkgName);
     });
   }
 
-  const unused = declared.filter(dep => !used.has(dep));
+  const IGNORE_UNUSED = [
+    'eslint',
+    'prettier',
+    'jest',
+    'nodemon',
+    'webpack',
+    'vite',
+    'babel',
+    'mocha',
+    'ava',
+    'ts-node',
+    'typescript',
+    // 기타 필요시 추가
+  ];
+
+  const unused = declared.filter((dep) => !used.has(dep) && !IGNORE_UNUSED.includes(dep));
   return unused;
 }
