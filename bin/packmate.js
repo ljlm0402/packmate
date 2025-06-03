@@ -12,6 +12,7 @@ import { getUpdateCandidates } from '../src/update-checker.js';
 import { runUnusedCheck } from '../src/unused-checker.js';
 import { detectPackageManager } from '../src/detect-package-manager.js';
 import { installPackages, uninstallPackages } from '../src/install-helper.js';
+import { runWithWarningCapture } from '../src/warning-capture.js';
 
 const require = createRequire(import.meta.url);
 
@@ -288,27 +289,39 @@ async function main() {
     .filter((sel) => sel.endsWith('__install'))
     .map((sel) => sel.split('__')[0]);
 
-  // 실제 업데이트/제거/설치 명령 실행
+  // 실제 업데이트/제거/설치 명령 실행(경고 메시지 실시간 캡처)
   for (const item of updateTo) {
-    let cmd;
+    let cmd, args;
     switch (packageManager) {
       case 'pnpm':
-        cmd = `pnpm add ${item.name}@${item.version}`;
+        cmd = 'pnpm';
+        args = ['add', `${item.name}@${item.version}`];
         break;
       case 'yarn':
-        cmd = `yarn add ${item.name}@${item.version}`;
+        cmd = 'yarn';
+        args = ['add', `${item.name}@${item.version}`];
         break;
       case 'npm':
       default:
-        cmd = `npm install ${item.name}@${item.version}`;
+        cmd = 'npm';
+        args = ['install', `${item.name}@${item.version}`];
         break;
     }
-    note(chalk.cyan(cmd), 'Command');
-    try {
-      execSync(cmd, { stdio: 'inherit' });
+    note(chalk.cyan(`${cmd} ${args.join(' ')}`), 'Command');
+    const { code, warnings } = await runWithWarningCapture(cmd, args);
+    if (code === 0) {
       note(chalk.green(`✔️ Package update completed: ${item.name}@${item.version}`), 'Success');
-    } catch (e) {
-      note(chalk.red(`❌ Package update failed: ${e.message}`), 'Failed');
+    } else {
+      note(chalk.red(`❌ Package update failed: ${item.name}@${item.version}`), 'Failed');
+    }
+    if (warnings.length) {
+      note(
+        chalk.yellow(
+          `⚠️  Detected warnings during install/update of ${item.name}:\n` +
+            warnings.map((w) => '  - ' + w).join('\n'),
+        ),
+        'Warning',
+      );
     }
   }
 
