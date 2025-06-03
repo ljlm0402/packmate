@@ -4,7 +4,12 @@ import precinct from 'precinct';
 import path from 'path';
 import process from 'process';
 
-export async function runUnusedCheck() {
+function getCustomIgnoreList(pkgJson) {
+  // 예시: package.json의 "packmate.ignoreUnused" 필드 사용
+  return pkgJson?.packmate?.ignoreUnused || [];
+}
+
+export async function runUnusedCheck({ withUsedList = false } = {}) {
   const pkgPath = path.resolve(process.cwd(), 'package.json');
   const pkgJson = await fs.readJSON(pkgPath);
   const declared = [
@@ -13,7 +18,6 @@ export async function runUnusedCheck() {
   ];
   const used = new Set();
 
-  // js/ts 확장자별 precinct 타입 매핑
   const extToType = {
     '.js': 'es6',
     '.jsx': 'es6',
@@ -31,12 +35,11 @@ export async function runUnusedCheck() {
     let deps;
     try {
       deps = precinct(content, { type });
-    } catch {
+    } catch (e) {
+      console.warn(`precinct parse failed in "${file}": ${e.message}`);
       deps = [];
     }
-
     deps.forEach((dep) => {
-      // 상대 경로나 내부 모듈 제외 (패키지명만 추출)
       if (!dep || dep.startsWith('.') || path.isAbsolute(dep)) return;
       const pkgName =
         dep.split('/')[0].startsWith('@') && dep.includes('/')
@@ -46,7 +49,7 @@ export async function runUnusedCheck() {
     });
   }
 
-  const IGNORE_UNUSED = [
+  const DEFAULT_IGNORE_UNUSED = [
     'eslint',
     'prettier',
     'jest',
@@ -58,9 +61,13 @@ export async function runUnusedCheck() {
     'ava',
     'ts-node',
     'typescript',
-    // 기타 필요시 추가
   ];
+  const IGNORE_UNUSED = [...DEFAULT_IGNORE_UNUSED, ...getCustomIgnoreList(pkgJson)];
 
   const unused = declared.filter((dep) => !used.has(dep) && !IGNORE_UNUSED.includes(dep));
+
+  if (withUsedList) {
+    return { unused, used: Array.from(used) };
+  }
   return unused;
 }
