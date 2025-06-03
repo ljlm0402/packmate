@@ -1,8 +1,0 @@
-.vscode/
-.github/
-.eslintrc
-eslint.config.js
-.prettierrc
-.prettierignore
-pnpm-lock.yaml
-*.log
