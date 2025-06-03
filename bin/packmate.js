@@ -1,8 +1,5 @@
 #!/usr/bin/env node
 
-import { getUpdateCandidates } from '../src/update-checker.js';
-import { runUnusedCheck } from '../src/unused-checker.js';
-import { detectPackageManager } from '../src/detect-package-manager.js';
 import { select, multiselect, isCancel, cancel, intro, outro, note } from '@clack/prompts';
 import chalk from 'chalk';
 import fs from 'fs';
@@ -11,6 +8,10 @@ import { execSync } from 'child_process';
 import semver from 'semver';
 import { createRequire } from 'module';
 import process from 'process';
+import { getUpdateCandidates } from '../src/update-checker.js';
+import { runUnusedCheck } from '../src/unused-checker.js';
+import { detectPackageManager } from '../src/detect-package-manager.js';
+import { installPackages, uninstallPackages } from '../src/install-helper.js';
 
 const require = createRequire(import.meta.url);
 
@@ -27,6 +28,7 @@ async function fetchAll(arr, cb) {
 function getNotInstalledPackages() {
   const pkgPath = path.resolve(process.cwd(), 'package.json');
   if (!fs.existsSync(pkgPath)) return [];
+
   const pkgJson = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
   const allDeps = { ...pkgJson.dependencies, ...pkgJson.devDependencies };
   const notInstalled = [];
@@ -37,63 +39,8 @@ function getNotInstalledPackages() {
       notInstalled.push(dep);
     }
   }
+
   return notInstalled;
-}
-
-/**
- * 지정한 패키지들을 패키지 매니저를 사용해 제거합니다.
- */
-function uninstallPackages(packages, packageManager) {
-  if (packages.length === 0) return;
-  let uninstallCmd;
-  switch (packageManager) {
-    case 'pnpm':
-      uninstallCmd = 'pnpm remove';
-      break;
-    case 'yarn':
-      uninstallCmd = 'yarn remove';
-      break;
-    case 'npm':
-    default:
-      uninstallCmd = 'npm uninstall';
-      break;
-  }
-  const pkgList = packages.join(' ');
-  console.log(chalk.yellow(`> ${uninstallCmd} ${pkgList}`));
-  try {
-    execSync(`${uninstallCmd} ${pkgList}`, { stdio: 'inherit' });
-    console.log(chalk.green(`Package removal completed: ${pkgList}`));
-  } catch (e) {
-    console.error(chalk.red(`Package removal failed: ${e.message}`));
-  }
-}
-
-/**
- * 지정한 패키지들을 패키지 매니저를 사용해 설치합니다.
- */
-function installPackages(packages, packageManager) {
-  if (packages.length === 0) return;
-  let installCmd;
-  switch (packageManager) {
-    case 'pnpm':
-      installCmd = 'pnpm add';
-      break;
-    case 'yarn':
-      installCmd = 'yarn add';
-      break;
-    case 'npm':
-    default:
-      installCmd = 'npm install';
-      break;
-  }
-  const pkgList = packages.map((pkg) => `${pkg}@latest`).join(' ');
-  console.log(chalk.yellow(`> ${installCmd} ${pkgList}`));
-  try {
-    execSync(`${installCmd} ${pkgList}`, { stdio: 'inherit' });
-    console.log(chalk.green(`Package install completed: ${pkgList}`));
-  } catch (e) {
-    console.error(chalk.red(`Package install failed: ${e.message}`));
-  }
 }
 
 /**
@@ -115,6 +62,20 @@ function getRecommendedMajorVersions(versionList) {
 
 async function main() {
   intro(chalk.cyan('📦 Packmate: Dependency Updates & Cleanup'));
+
+  // (1) node_modules 체크 및 가이드 메시지
+  const nodeModulesPath = path.resolve(process.cwd(), 'node_modules');
+  let nodeModulesExists = fs.existsSync(nodeModulesPath);
+
+  if (!nodeModulesExists) {
+    note(
+      chalk.yellow(
+        '⚠️  The node_modules directory is missing. Please install your dependencies first (e.g., npm install, yarn install, or pnpm install).',
+      ),
+      'Warning',
+    );
+    process.exit(0);
+  }
 
   const packageManager = detectPackageManager();
   const unused = await runUnusedCheck();
@@ -172,14 +133,48 @@ async function main() {
     };
   });
 
-  // 미설치 패키지 정보 추가
+  // (2) 미설치 패키지 정보 추가 (상태 세분화)
   notInstalled.forEach((dep) => {
     if (allPkgs[dep]) return;
+
+    let lockJson;
+    try {
+      if (packageManager === 'npm') {
+        lockJson = JSON.parse(
+          fs.readFileSync(path.resolve(process.cwd(), 'package-lock.json'), 'utf-8'),
+        );
+      }
+      // pnpm/yarn lock 파싱 필요하면 여기에
+    } catch {
+      lockJson = null;
+    }
+
+    let status = 'Not Installed';
+    let version = '-';
+
+    if (!nodeModulesExists) {
+      // node_modules 자체가 없음
+      if (lockJson && lockJson.dependencies && lockJson.dependencies[dep]) {
+        status = 'Declared but Not Installed';
+        version = lockJson.dependencies[dep].version || '-';
+      } else {
+        status = 'Not Installed';
+      }
+    } else {
+      // node_modules가 있으나 해당 패키지가 없음
+      if (lockJson && lockJson.dependencies && lockJson.dependencies[dep]) {
+        status = 'Declared but Not Installed';
+        version = lockJson.dependencies[dep].version || '-';
+      } else {
+        status = 'Not Installed';
+      }
+    }
+
     allPkgs[dep] = {
       name: dep,
-      current: '-',
+      current: version,
       latest: '-',
-      status: 'Not Installed',
+      status,
       action: 'install',
     };
   });
@@ -207,18 +202,26 @@ async function main() {
   // 유저에게 선택 프롬프트 표시(업데이트, 미사용, 미설치만 선택 가능, 최신버전은 disabled)
   const promptChoices = Object.values(allPkgs).map((pkg) => {
     let label = '';
+    if (pkg.action === 'install') {
+      let label = `${chalk.bold(pkg.name)}  `;
+      if (pkg.status === 'Declared but Not Installed') {
+        label += chalk.magenta('[Declared but Not Installed]');
+      } else if (pkg.status === 'Not Installed') {
+        label += chalk.cyan('[Not Installed]');
+      }
+      return { label, value: `${pkg.name}__install` };
+    }
+
     if (pkg.action === 'update') {
       label = `${chalk.bold(pkg.name)}  ${chalk.yellow(pkg.current)} ${chalk.white('→')} ${chalk.green(pkg.latest)}  ${chalk.blue('[Update Available]')}`;
       return { label, value: `${pkg.name}__update` };
     }
+
     if (pkg.action === 'remove') {
       label = `${chalk.bold(pkg.name)}  ${chalk.red(pkg.current)}  ${chalk.red('[Unused]')}`;
       return { label, value: `${pkg.name}__remove` };
     }
-    if (pkg.action === 'install') {
-      label = `${chalk.bold(pkg.name)}  ${chalk.cyan('[Not Installed]')}`;
-      return { label, value: `${pkg.name}__install` };
-    }
+
     label = `${chalk.bold(pkg.name)}  ${chalk.green(pkg.current)}  ${chalk.gray('[Latest]')}`;
     return { label, value: `${pkg.name}__latest`, disabled: true };
   });

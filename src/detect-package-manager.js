@@ -8,25 +8,44 @@ function getProjectRoot() {
   return process.cwd();
 }
 
+function findLockFileUpward(root, lockFile) {
+  let current = root;
+  for (let i = 0; i < 3; i++) {
+    // 3단계까지만 탐색 (원하면 늘릴 수 있음)
+    const filePath = path.join(current, lockFile);
+    if (fs.existsSync(filePath)) return filePath;
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return null;
+}
+
 export function detectPackageManager() {
   if (cachedPackageManager) return cachedPackageManager;
 
   const root = getProjectRoot();
 
   const lockFiles = {
-    pnpm: path.join(root, 'pnpm-lock.yaml'),
-    yarn: path.join(root, 'yarn.lock'),
-    npm: path.join(root, 'package-lock.json'),
+    pnpm: findLockFileUpward(root, 'pnpm-lock.yaml'),
+    yarn: findLockFileUpward(root, 'yarn.lock'),
+    npm: findLockFileUpward(root, 'package-lock.json'),
   };
 
-  if (fs.existsSync(lockFiles.pnpm)) {
-    cachedPackageManager = 'pnpm';
-  } else if (fs.existsSync(lockFiles.yarn)) {
-    cachedPackageManager = 'yarn';
-  } else if (fs.existsSync(lockFiles.npm)) {
+  const found = Object.entries(lockFiles).filter(([, v]) => v);
+
+  if (found.length > 1) {
+    console.log(
+      '\x1b[33m%s\x1b[0m',
+      `⚠️  Multiple lock files detected: ${found.map(([k]) => k).join(', ')}. Using: ${found[0][0]}`,
+    );
+  }
+
+  if (found.length === 0) {
+    console.log('\x1b[33m%s\x1b[0m', '⚠️  No lock file detected. Defaulting to npm.');
     cachedPackageManager = 'npm';
   } else {
-    cachedPackageManager = 'npm';
+    cachedPackageManager = found[0][0];
   }
 
   return cachedPackageManager;
