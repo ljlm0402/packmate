@@ -1,6 +1,6 @@
 {
   "name": "packmate",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Your smart and friendly assistant for dependency updates and cleanup.",
   "author": "AGUMON <ljlm0402@gmail.com>",
   "license": "MIT",
@@ -35,7 +35,6 @@
     "globby": "^13.2.2",
     "js-yaml": "^4.1.0",
     "npm-check-updates": "^16.14.3",
-    "p-limit": "^6.2.0",
     "precinct": "^10.0.0",
     "semver": "^7.7.2"
   },
