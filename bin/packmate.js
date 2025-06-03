@@ -8,6 +8,7 @@ import { execSync } from 'child_process';
 import semver from 'semver';
 import { createRequire } from 'module';
 import process from 'process';
+import pLimit from 'p-limit';
 import { getUpdateCandidates } from '../src/update-checker.js';
 import { runUnusedCheck } from '../src/unused-checker.js';
 import { detectPackageManager } from '../src/detect-package-manager.js';
@@ -16,11 +17,30 @@ import { runWithWarningCapture } from '../src/warning-capture.js';
 
 const require = createRequire(import.meta.url);
 
-/**
- * 배열의 모든 항목을 비동기로 병렬 처리하여 결과를 반환합니다. (속도 개선용)
- */
-async function fetchAll(arr, cb) {
-  return Promise.all(arr.map(cb));
+// 🚩 버전 추출: npm/yarn/pnpm 구조 모두 대응!
+function getCurrentVersion(dep) {
+  // 1. npm/yarn 방식
+  try {
+    const mainPath = require.resolve(`${dep}/package.json`, { paths: [process.cwd()] });
+    if (mainPath && fs.existsSync(mainPath)) {
+      return JSON.parse(fs.readFileSync(mainPath, 'utf-8')).version;
+    }
+  } catch {}
+  // 2. pnpm 하드링크 구조
+  try {
+    const pnpmDir = path.resolve(process.cwd(), 'node_modules', '.pnpm');
+    if (fs.existsSync(pnpmDir)) {
+      // ex: "chalk@5.4.1"
+      const found = fs.readdirSync(pnpmDir).find((f) => f.startsWith(dep + '@'));
+      if (found) {
+        const pkgPath = path.resolve(pnpmDir, found, 'node_modules', dep, 'package.json');
+        if (fs.existsSync(pkgPath)) {
+          return JSON.parse(fs.readFileSync(pkgPath, 'utf-8')).version;
+        }
+      }
+    }
+  } catch {}
+  return '-';
 }
 
 /**
@@ -34,11 +54,8 @@ function getNotInstalledPackages() {
   const allDeps = { ...pkgJson.dependencies, ...pkgJson.devDependencies };
   const notInstalled = [];
   for (const dep of Object.keys(allDeps)) {
-    try {
-      require.resolve(dep, { paths: [process.cwd()] });
-    } catch {
-      notInstalled.push(dep);
-    }
+    const version = getCurrentVersion(dep);
+    if (!version || version === '-') notInstalled.push(dep);
   }
 
   return notInstalled;
@@ -85,17 +102,23 @@ async function main() {
   const allPkgs = {};
 
   // 업데이트가 필요한 모든 패키지들의 버전 목록을 병렬로 조회합니다.
-  const updatePkgVersionLists = await fetchAll(updateCandidates, async (c) => {
-    let versionList = [];
-    try {
-      const out = execSync(`npm view ${c.name} versions --json`, { encoding: 'utf-8' });
-      versionList = JSON.parse(out);
-    } catch {
-      versionList = [c.latestVersion];
-    }
-    versionList.reverse();
-    return { ...c, versionList };
-  });
+  const limit = pLimit(5); // 동시에 5개만 실행
+
+  const updatePkgVersionLists = await Promise.all(
+    updateCandidates.map((c) =>
+      limit(async () => {
+        let versionList = [];
+        try {
+          const out = execSync(`npm view ${c.name} versions --json`, { encoding: 'utf-8' });
+          versionList = JSON.parse(out);
+        } catch {
+          versionList = [c.latestVersion];
+        }
+        versionList.reverse();
+        return { ...c, versionList };
+      }),
+    ),
+  );
 
   for (const c of updatePkgVersionLists) {
     // major별 최신 버전 추천
@@ -119,12 +142,7 @@ async function main() {
   // 사용되지 않는 패키지 정보 추가
   unused.forEach((dep) => {
     if (allPkgs[dep]) return;
-    let current = '-';
-    try {
-      const pkgJsonPath = require.resolve(`${dep}/package.json`);
-      const content = fs.readFileSync(pkgJsonPath, 'utf-8');
-      current = JSON.parse(content).version;
-    } catch {}
+    const current = getCurrentVersion(dep);
     allPkgs[dep] = {
       name: dep,
       current,
@@ -185,12 +203,7 @@ async function main() {
   const declared = { ...pkgJson.dependencies, ...pkgJson.devDependencies };
   for (const dep of Object.keys(declared)) {
     if (allPkgs[dep]) continue;
-    let current = '-';
-    try {
-      const pkgJsonPath = require.resolve(`${dep}/package.json`);
-      const content = fs.readFileSync(pkgJsonPath, 'utf-8');
-      current = JSON.parse(content).version;
-    } catch {}
+    const current = getCurrentVersion(dep);
     allPkgs[dep] = {
       name: dep,
       current,
@@ -204,7 +217,7 @@ async function main() {
   const promptChoices = Object.values(allPkgs).map((pkg) => {
     let label = '';
     if (pkg.action === 'install') {
-      let label = `${chalk.bold(pkg.name)}  `;
+      label = `${chalk.bold(pkg.name)}  `;
       if (pkg.status === 'Declared but Not Installed') {
         label += chalk.magenta('[Declared but Not Installed]');
       } else if (pkg.status === 'Not Installed') {

@@ -35,6 +35,7 @@
     "globby": "^13.2.2",
     "js-yaml": "^4.1.0",
     "npm-check-updates": "^16.14.3",
+    "p-limit": "^6.2.0",
     "precinct": "^10.0.0",
     "semver": "^7.7.2"
   },
