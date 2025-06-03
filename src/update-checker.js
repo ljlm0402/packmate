@@ -71,7 +71,7 @@ async function getLatestVersions(pkgs) {
   return res;
 }
 
-async function getUpdateCandidates(packageManager = 'npm') {
+export async function getUpdateCandidates(packageManager = 'npm') {
   const pkgJson = getPkgJson();
   const lockJson = getLockJson(packageManager);
 
@@ -99,5 +99,3 @@ async function getUpdateCandidates(packageManager = 'npm') {
   }
   return candidates;
 }
-
-export { getUpdateCandidates };
