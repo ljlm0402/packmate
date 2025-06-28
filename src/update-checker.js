@@ -1,9 +1,12 @@
-import { execSync } from 'child_process';
+import pMap from 'p-map';
+import packageJson from 'package-json';
 import fs from 'fs';
 import path from 'path';
 import semver from 'semver';
 import process from 'process';
-import yaml from 'js-yaml'; // pnpm lock yaml 파싱
+import yaml from 'js-yaml';
+import cliProgress from 'cli-progress';
+import pRetry from 'p-retry';
 
 const pkgPath = path.resolve(process.cwd(), 'package.json');
 const nodeModulesPath = path.resolve(process.cwd(), 'node_modules');
@@ -50,25 +53,46 @@ function getInstalledVersion(pkgName, lockJson, pkgJson) {
   return pkgJson.dependencies?.[pkgName] || pkgJson.devDependencies?.[pkgName] || null;
 }
 
-// 여러 패키지 병렬 조회(최대 8개씩)
-async function getLatestVersions(pkgs) {
-  const res = {};
-  const batchSize = 8;
-  for (let i = 0; i < pkgs.length; i += batchSize) {
-    const batch = pkgs.slice(i, i + batchSize);
-    await Promise.all(
-      batch.map(async (pkg) => {
-        try {
-          const version = execSync(`npm view ${pkg} version`, { encoding: 'utf-8' }).trim();
-          res[pkg] = version;
-        } catch (e) {
-          res[pkg] = null;
-          console.error(`[npm view error] ${pkg}: ${e.message}`);
-        }
-      }),
-    );
+// 각 패키지의 최신 버전을 가져오는 함수
+export async function getLatestVersions(pkgs) {
+  const total = pkgs.length;
+
+  // 프로그레스 바 인스턴스 생성
+  const bar = new cliProgress.SingleBar({
+    format: '진행률 |{bar}| {value}/{total} ({percentage}%)',
+    barCompleteChar: '\u2588',
+    barIncompleteChar: '\u2591',
+    hideCursor: true,
+  });
+  bar.start(total, 0); // (총개수, 시작값)
+
+  // 실제 진행률 카운터
+  let completed = 0;
+
+  // 개별 패키지 최신 버전 조회 함수
+  async function getLatest(pkg) {
+    try {
+      return await pRetry(
+        async () => {
+          const data = await packageJson(pkg);
+          return [pkg, data.version];
+        },
+        { retries: 3 },
+      );
+    } catch (e) {
+      console.error(`[fetch error] ${pkg}: ${e.message}`);
+      return [pkg, null];
+    } finally {
+      completed += 1;
+      bar.update(completed); // 바 갱신
+    }
   }
-  return res;
+
+  // p-map으로 동시성 제한(8개씩)
+  const results = await pMap(pkgs, getLatest, { concurrency: 8 });
+  bar.stop(); // 완료 시 바 종료
+
+  return Object.fromEntries(results);
 }
 
 export async function getUpdateCandidates(packageManager = 'npm') {
