@@ -157,6 +157,34 @@ PRs and issues are welcome!
 - Use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) for commit messages.
 - File bugs or suggestions via [GitHub Issues.](https://github.com/ljlm0402/packmate/issues)
 
+## 📑 Recommended Commit Message
+
+```
+✨ Add user profile edit feature
+
+- Implement profile image update UI/UX
+- Add API integration for profile update
+
+BREAKING CHANGE: Restructure profile page layout
+```
+
+| When                   | Commit Message         |
+| :--------------------- | :--------------------- |
+| Add Feature            | ✨ Add Feature         |
+| Fix Bug                | 🐞 Fix Bug             |
+| Refactor Code          | 🛠 Refactor Code       |
+| Install/Update Package | 📦 Install Package     |
+| Remove Package         | 🗑️ Remove Package      |
+| Fix/Update README      | 📚 Fix Readme          |
+| Update Documentation   | 📝 Update Docs         |
+| Update Version         | 🌼 Update Version      |
+| New Template           | 🎉 New Template        |
+| Improve Performance    | ⚡ Improve Performance |
+| Add/Update Test        | ✅ Add/Update Test     |
+| Fix Lint/Format        | 🎨 Fix Lint/Format     |
+| Chore/Miscellaneous    | 🔧 Chore               |
+| Initial Commit         | 🎈 Initial Commit      |
+
 ## 📄 License
 
 MIT © [AGUMON (ljlm0402)](mailto:ljlm0402@gmail.com)
