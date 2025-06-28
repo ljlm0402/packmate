@@ -8,6 +8,7 @@ import { execSync } from 'child_process';
 import semver from 'semver';
 import { createRequire } from 'module';
 import process from 'process';
+import depcheck from 'depcheck';
 import { getUpdateCandidates } from '../src/update-checker.js';
 import { runUnusedCheck } from '../src/unused-checker.js';
 import { detectPackageManager } from '../src/detect-package-manager.js';
@@ -81,14 +82,11 @@ async function main() {
     );
     process.exit(0);
   }
-
-  const packageManager = detectPackageManager();
-  const unused = await runUnusedCheck();
-  const updateCandidates = await getUpdateCandidates(packageManager); // 최신 버전만 한 번에 빠르게
-  const notInstalled = getNotInstalledPackages();
   const allPkgs = {};
+  const packageManager = detectPackageManager();
 
   // 1. 업데이트 가능 패키지(최신버전만 조회, 전체버전x)
+  const updateCandidates = await getUpdateCandidates(packageManager); // 최신 버전만 한 번에 빠르게
   updateCandidates.forEach((c) => {
     allPkgs[c.name] = {
       name: c.name,
@@ -100,20 +98,56 @@ async function main() {
     };
   });
 
-  // 2. 미사용 패키지
-  unused.forEach((dep) => {
+  // 2. 미사용 패키지(precinct + depcheck 병합)
+  const unused_precinct = await runUnusedCheck(); // precinct(기존)
+
+  // depcheck(깊은 탐지)
+  const depcheckResult = await depcheck(process.cwd(), {});
+  const unused_depcheck = depcheckResult.unusedDependencies || [];
+
+  // 병합: 확신/의심 unused 구분
+  const bothUnused = unused_precinct.filter((x) => unused_depcheck.includes(x));
+  const onlyPrecinct = unused_precinct.filter((x) => !unused_depcheck.includes(x));
+  const onlyDepcheck = unused_depcheck.filter((x) => !unused_precinct.includes(x));
+
+  bothUnused.forEach((dep) => {
     if (allPkgs[dep]) return;
-    const current = getCurrentVersion(dep);
     allPkgs[dep] = {
       name: dep,
-      current,
+      current: getCurrentVersion(dep),
       latest: '-',
-      status: 'Unused',
+      status: 'Unused (Strongly)',
       action: 'remove',
+      confidence: 'high',
+    };
+  });
+  onlyPrecinct.forEach((dep) => {
+    if (allPkgs[dep]) return;
+    allPkgs[dep] = {
+      name: dep,
+      current: getCurrentVersion(dep),
+      latest: '-',
+      status: 'Unused (Precinct only)',
+      action: 'remove',
+      confidence: 'medium',
+      hint: 'precinct 방식에서만 감지됨',
+    };
+  });
+  onlyDepcheck.forEach((dep) => {
+    if (allPkgs[dep]) return;
+    allPkgs[dep] = {
+      name: dep,
+      current: getCurrentVersion(dep),
+      latest: '-',
+      status: 'Unused (Depcheck only)',
+      action: 'remove',
+      confidence: 'medium',
+      hint: 'depcheck 방식에서만 감지됨',
     };
   });
 
   // 3. 미설치 패키지
+  const notInstalled = getNotInstalledPackages();
   notInstalled.forEach((dep) => {
     if (allPkgs[dep]) return;
     allPkgs[dep] = {
@@ -140,24 +174,50 @@ async function main() {
     };
   }
 
+  // action 우선순위에 맞게 정렬
+  const ACTION_ORDER = ['update', 'remove', 'install', 'latest'];
+  const pkgsSorted = Object.values(allPkgs).sort((a, b) => {
+    const aIdx = ACTION_ORDER.indexOf(a.action);
+    const bIdx = ACTION_ORDER.indexOf(b.action);
+    return aIdx - bIdx;
+  });
+
   // ---- 프롬프트: 유저 선택 ----
-  const promptChoices = Object.values(allPkgs).map((pkg) => {
-    let label = '';
-    if (pkg.action === 'install') {
-      label = `${chalk.bold(pkg.name)}  `;
-      label += chalk.cyan('[Not Installed]');
-      return { label, value: `${pkg.name}__install` };
+  const promptChoices = pkgsSorted.map((pkg) => {
+    switch (pkg.action) {
+      case 'install':
+        return {
+          label: `${chalk.bold(pkg.name)}  ${chalk.cyan('[Not Installed]')}`,
+          value: `${pkg.name}__install`,
+        };
+      case 'update':
+        return {
+          label: `${chalk.bold(pkg.name)}  ${chalk.yellow(pkg.current)} ${chalk.white('→')} ${chalk.green(pkg.latest)}  ${chalk.blue('[Update Available]')}`,
+          value: `${pkg.name}__update`,
+        };
+      case 'remove':
+        if (pkg.confidence === 'high') {
+          return {
+            label: `${chalk.red(pkg.name)}  ${chalk.red(pkg.current)}  ${chalk.bgRedBright('[Strongly Unused]')}`,
+            value: `${pkg.name}__remove`,
+            checked: true,
+          };
+        } else {
+          return {
+            label: `${chalk.yellow(pkg.name)}  ${chalk.yellow(pkg.current)}  ${chalk.bgYellowBright('[Warning: Unused only by ' + (pkg.hint?.includes('precinct') ? 'Precinct' : 'Depcheck') + ']')}`,
+            value: `${pkg.name}__remove`,
+            hint: chalk.yellow(pkg.hint),
+            checked: false,
+          };
+        }
+      case 'latest':
+      default:
+        return {
+          label: `${chalk.bold(pkg.name)}  ${chalk.green(pkg.current)}  ${chalk.gray('[Latest]')}`,
+          value: `${pkg.name}__latest`,
+          disabled: true,
+        };
     }
-    if (pkg.action === 'update') {
-      label = `${chalk.bold(pkg.name)}  ${chalk.yellow(pkg.current)} ${chalk.white('→')} ${chalk.green(pkg.latest)}  ${chalk.blue('[Update Available]')}`;
-      return { label, value: `${pkg.name}__update` };
-    }
-    if (pkg.action === 'remove') {
-      label = `${chalk.bold(pkg.name)}  ${chalk.red(pkg.current)}  ${chalk.red('[Unused]')}`;
-      return { label, value: `${pkg.name}__remove` };
-    }
-    label = `${chalk.bold(pkg.name)}  ${chalk.green(pkg.current)}  ${chalk.gray('[Latest]')}`;
-    return { label, value: `${pkg.name}__latest`, disabled: true };
   });
 
   const selected = await multiselect({
@@ -172,7 +232,19 @@ async function main() {
     process.exit(0);
   }
 
-  // ---- [핵심!] 선택된 업데이트 패키지만 전체 버전 조회 후 프롬프트 ----
+  if (
+    selected.some((sel) =>
+      [...onlyPrecinct, ...onlyDepcheck].map((dep) => `${dep}__remove`).includes(sel),
+    )
+  ) {
+    note(
+      chalk.yellow(
+        '⚠️  한 쪽 방식에서만 unused로 감지된 패키지는, 빌드 도구/테스트/특수 환경에서 사용될 수 있으니 제거 전 주의하세요!',
+      ),
+      'Warning',
+    );
+  }
+
   const updateTo = [];
   for (const sel of selected) {
     if (sel.endsWith('__update')) {
@@ -275,6 +347,14 @@ async function main() {
   if (updateTo.length + toRemove.length + toInstall.length === 0) {
     note(chalk.yellow('No operations selected.'), 'Info');
   }
+
+  // 요약 출력 (unused 분포 등)
+  note(
+    chalk.gray(
+      `Unused packages (both: ${bothUnused.length}, precinct only: ${onlyPrecinct.length}, depcheck only: ${onlyDepcheck.length})`,
+    ),
+    'Summary',
+  );
 
   outro(chalk.bold.cyan('Packmate done! 🙌'));
 }
