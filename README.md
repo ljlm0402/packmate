@@ -7,7 +7,7 @@
   <br>
 </h1>
 
-<h4 align="center">♻️ Your smart and friendly CLI assistant for dependency updates and cleanup</h4>
+<h4 align="center">🤖 Your smart and friendly CLI assistant for dependency updates and cleanup</h4>
 
 <p align ="center">
     <a href="https://nodei.co/npm/packmate" target="_blank">
@@ -285,3 +285,9 @@ MIT © [AGUMON (ljlm0402)](mailto:ljlm0402@gmail.com)
 
 - [GitHub](https://github.com/ljlm0402/packmate)
 - [npm](https://www.npmjs.com/package/packmate)
+
+---
+
+<p align="center">
+  Made with ❤️ by <a href="https://github.com/ljlm0402">AGUMON</a> 🦖
+</p>
