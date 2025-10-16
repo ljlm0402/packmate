@@ -7,7 +7,7 @@
   <br>
 </h1>
 
-<h4 align="center">♻️ 스마트하고 친근한 의존성 업데이트 및 정리 CLI 도구</h4>
+<h4 align="center">🤖 스마트하고 친근한 의존성 업데이트 및 정리 CLI 도구</h4>
 
 <p align ="center">
     <a href="https://nodei.co/npm/packmate" target="_blank">
@@ -283,3 +283,9 @@ MIT © [AGUMON (ljlm0402)](mailto:ljlm0402@gmail.com)
 
 - [GitHub](https://github.com/ljlm0402/packmate)
 - [npm](https://www.npmjs.com/package/packmate)
+
+---
+
+<p align="center">
+  Made with ❤️ by <a href="https://github.com/ljlm0402">AGUMON</a> 🦖
+</p>
