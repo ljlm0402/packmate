@@ -1,6 +1,6 @@
 <h1 align="center">
   <br>
-  <img src="https://github.com/ljlm0402/packmate/raw/images/logo.png" alt="Project Logo" width="800" />
+  <img src="https://github.com/ljlm0402/packmate/raw/images/logo.png" alt="Project Logo" width="600" />
   <br>
   <br>
   PackMate
@@ -46,11 +46,14 @@
   </a>
 </p>
 
-<br />
+<p align="center">
+  <strong>· English <a href="./README.ko.md">· Korean</a></strong>
+</p>
 
 ---
 
 Packmate is a modern CLI tool for managing, updating, and cleaning up your Node.js project dependencies.
+
 It supports **npm**, **pnpm**, and **yarn**. With an intuitive interactive UI and powerful performance optimizations, Packmate helps you keep your project healthy and up-to-date—faster and safer than ever.
 
 ## 🤖 Why Packmate?
@@ -191,10 +194,6 @@ Progress |███████████████████████�
 └  Packmate complete! 🎉
 ```
 
-
-└  Packmate complete! 🎉
-```
-
 ## ⚙️ Requirements
 
 - Node.js v16 or later (recommended v18+)
@@ -269,22 +268,13 @@ Cache location:
 - Windows: `C:\Users\<user>\AppData\Local\Temp\packmate-cache`
 - Linux/Mac: `/tmp/packmate-cache`
 
-## 🧑‍💻 Contributing
+## 🤝 Contributing
 
-PRs and issues are welcome!
+Contributions are always welcome! Please feel free to open an issue or submit a pull request.
 
-- Fork the repo and submit pull requests.
-- Use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) for commit messages.
-- File bugs or suggestions via [GitHub Issues.](https://github.com/ljlm0402/packmate/issues)
+## 💳 License
 
-## 📄 License
-
-MIT © [AGUMON (ljlm0402)](mailto:ljlm0402@gmail.com)
-
-## 🌎 Links
-
-- [GitHub](https://github.com/ljlm0402/packmate)
-- [npm](https://www.npmjs.com/package/packmate)
+[MIT](LICENSE)
 
 ---
 
