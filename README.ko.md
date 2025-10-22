@@ -1,6 +1,6 @@
 <h1 align="center">
   <br>
-  <img src="https://github.com/ljlm0402/packmate/raw/images/logo.png" alt="Project Logo" width="800" />
+  <img src="https://github.com/ljlm0402/packmate/raw/images/logo.png" alt="Project Logo" width="600" />
   <br>
   <br>
   PackMate
@@ -46,13 +46,14 @@
   </a>
 </p>
 
-<br />
+<p align="center">
+    <strong><a href="./README.md">English</a> · 한국어</strong>
+</p>
 
 ---
 
-[English](./README.md) | **한국어**
-
 Packmate는 Node.js 프로젝트 의존성을 관리, 업데이트 및 정리하는 현대적인 CLI 도구입니다.
+
 **npm**, **pnpm**, **yarn**을 지원하며, 직관적인 인터랙티브 UI와 강력한 성능 최적화로 프로젝트를 더 빠르고 안전하게 최신 상태로 유지할 수 있습니다.
 
 ## 🤖 왜 Packmate인가요?
@@ -267,22 +268,13 @@ rm -rf /tmp/packmate-cache/*
 - Windows: `C:\Users\<user>\AppData\Local\Temp\packmate-cache`
 - Linux/Mac: `/tmp/packmate-cache`
 
-## 🧑‍💻 기여하기
+## 🤝 기여하기
 
-PR과 이슈는 언제나 환영합니다!
+기여는 언제나 환영합니다! 이슈를 열거나 풀 리퀘스트를 제출해 주세요.
 
-- 저장소를 포크하고 풀 리퀘스트를 제출하세요.
-- 커밋 메시지는 [Conventional Commits](https://www.conventionalcommits.org/ko/v1.0.0/)를 사용하세요.
-- 버그나 제안 사항은 [GitHub Issues](https://github.com/ljlm0402/packmate/issues)를 통해 제출하세요.
+## 💳 라이선스
 
-## 📄 라이선스
-
-MIT © [AGUMON (ljlm0402)](mailto:ljlm0402@gmail.com)
-
-## 🌎 링크
-
-- [GitHub](https://github.com/ljlm0402/packmate)
-- [npm](https://www.npmjs.com/package/packmate)
+[MIT](LICENSE)
 
 ---
 
