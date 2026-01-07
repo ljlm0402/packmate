@@ -27,9 +27,14 @@ function findLockFileUpward(root, lockFile) {
  */
 function isPackageManagerAvailable(pm) {
   try {
-    // --version 명령으로 존재 여부 확인
-    const command = process.platform === 'win32' ? `${pm} --version 2>nul` : `${pm} --version 2>/dev/null`;
-    execSync(command, { encoding: 'utf-8', stdio: 'pipe' });
+    // Windows와 Unix-like 시스템 모두에서 작동하도록 개선
+    // shell 옵션을 사용하여 PATH 환경변수 올바르게 해석
+    const options = { 
+      encoding: 'utf-8', 
+      stdio: 'pipe',
+      shell: true  // Windows와 Unix-like 모두에서 안정적으로 작동
+    };
+    execSync(`${pm} --version`, options);
     return true;
   } catch (error) {
     return false;
