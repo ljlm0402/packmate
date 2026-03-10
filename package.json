@@ -1,7 +1,7 @@
 {
   "name": "packmate",
   "version": "2.2.0",
-  "description": "Your smart and friendly assistant for dependency updates, security scanning, and cleanup with AI-powered caching and multi-source vulnerability detection.",
+  "description": "Your smart and friendly assistant for dependency updates, security scanning, and cleanup with AI-powered caching, multi-source vulnerability detection, advanced TypeScript analysis, and team collaboration features.",
   "author": "AGUMON <ljlm0402@gmail.com>",
   "license": "MIT",
   "keywords": [
@@ -22,6 +22,12 @@
     "worker-pool",
     "predictive",
     "compression",
+    "typescript-analysis",
+    "team-collaboration",
+    "policy-validation",
+    "git-hooks",
+    "config-analysis",
+    "dynamic-imports",
     "tool",
     "nodejs"
   ],

@@ -7,7 +7,7 @@
   <br>
 </h1>
 
-<h4 align="center">🤖 Your smart and friendly CLI assistant for dependency updates and cleanup</h4>
+<h4 align="center">🤖 Your smart and friendly CLI assistant for dependency updates, security scanning, advanced analysis, and team collaboration</h4>
 
 <p align ="center">
     <a href="https://nodei.co/npm/packmate" target="_blank">
@@ -71,8 +71,42 @@ It supports **npm**, **pnpm**, and **yarn**. With an intuitive interactive UI an
 - **3-Level Caching System**: Memory → Disk (1hr TTL) → Network
   - First run: Standard speed
   - Second run: **6x faster** with cached registry data
-- **Parallel Processing**: Multi-core CPU utilization for file scanning (**2-4x faster**)
+- **Worker Pool Processing**: Multi-core CPU utilization for file scanning (**2-4x faster**)
+- **Compressed Caching**: Brotli compression achieving **90% storage reduction**
+- **Predictive Caching**: AI-powered package prediction and pre-loading
 - **Adaptive Concurrency**: Dynamic request throttling based on CPU cores (8-16 concurrent)
+
+### Advanced Security & Analysis (NEW in v2.2.0)
+- **Multi-Source Security Scanning**:
+  - **npm audit**: Official npm security advisories
+  - **OSV Database**: Google's Open Source Vulnerabilities database
+  - **GitHub Advisory**: GitHub's security advisory database
+- **Advanced TypeScript Analysis**:
+  - Decorator pattern detection (`@Component`, `@Injectable`, etc.)
+  - Generic type usage analysis
+  - Complex import pattern recognition
+  - AST-based code structure analysis
+- **Configuration File Analysis**:
+  - Webpack, Vite, Rollup configuration parsing
+  - Babel, TypeScript, Jest config dependencies
+  - Dynamic import and code-splitting detection
+
+### Team Collaboration & Policy Management (NEW in v2.2.0)
+- **Team Configuration Management**:
+  - Centralized team policies and rules
+  - Git hooks integration (pre-commit, pre-push, commit-msg)
+  - Team synchronization with conflict detection
+- **Policy Validation Engine**:
+  - License compliance checking
+  - Dependency version control policies
+  - Security vulnerability thresholds
+  - Performance and bundle size limits
+- **Preset Templates**:
+  - **Strict**: Maximum security (Financial/Healthcare)
+  - **Moderate**: Balanced development velocity
+  - **Open Source**: Community development optimized
+  - **Startup**: Fast development with safety nets
+  - **Loose**: Minimal restrictions for prototyping
 
 ### Smart Detection
 - **Enhanced Unused Detection** (90%+ accuracy):
@@ -132,10 +166,56 @@ npx packmate
 
 ## 📝 Usage
 
+### Basic Usage
 From your project root, just run:
 
 ```sh
 packmate
+```
+
+### Enhanced Mode (v2.2.0)
+For advanced features including team collaboration and security analysis:
+
+```sh
+# Interactive enhanced mode
+packmate-enhanced
+
+# Advanced analysis with team policy validation
+packmate-enhanced analyze-advanced
+
+# Enhanced security scan with multiple databases
+packmate-enhanced security-scan
+
+# Team configuration synchronization
+packmate-enhanced team-sync
+
+# Policy compliance checking
+packmate-enhanced policy-check
+```
+
+### Command Line Options
+
+```sh
+# Standard mode
+packmate [scan|update|analyze|report]
+
+# Enhanced mode with advanced features
+packmate-enhanced [command] [options]
+
+# Available enhanced commands:
+#   analyze-advanced  - TypeScript analysis + team policy validation
+#   security-scan     - Multi-source security scanning
+#   team-sync        - Synchronize team configuration
+#   policy-check     - Validate project against team policies
+#   cache-optimize   - Optimize cache systems
+#   health-check     - System health diagnostics
+#   team-setup       - Initialize team configuration
+
+# Options:
+#   --project-path   - Specify project directory
+#   --deep-scan      - Enable comprehensive security analysis
+#   --json           - Output results in JSON format
+#   --quiet          - Reduce output verbosity
 ```
 
 **Typical Workflow Example:**

@@ -3,14 +3,52 @@
  * CPU 집약적인 패키지 작업들을 병렬 처리
  */
 
-import { WorkerHandler } from './worker-pool.js';
+import { parentPort } from 'worker_threads';
 import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import https from 'https';
 import { promisify } from 'util';
 
+// 간단한 Worker Handler
+class WorkerHandler {
+    constructor() {
+        this.handlers = new Map();
+    }
+    
+    registerHandler(type, handler) {
+        this.handlers.set(type, handler);
+    }
+    
+    async handleMessage(message) {
+        const { type, data, id } = message;
+        const handler = this.handlers.get(type);
+        
+        if (!handler) {
+            throw new Error(`No handler found for type: ${type}`);
+        }
+        
+        try {
+            const result = await handler(data);
+            parentPort.postMessage({ type: 'result', id, result });
+        } catch (error) {
+            parentPort.postMessage({ type: 'error', id, error: error.message });
+        }
+    }
+}
+
 const handler = new WorkerHandler();
+
+// 메시지 리스너 설정
+parentPort.on('message', (message) => {
+    handler.handleMessage(message).catch(error => {
+        parentPort.postMessage({ 
+            type: 'error', 
+            id: message.id, 
+            error: error.message 
+        });
+    });
+});
 
 // HTTP 요청을 Promise로 래핑
 const httpsGet = (url) => {

@@ -38,6 +38,16 @@ export class AdvancedUI {
         this.currentTheme = this.themes.default;
     }
 
+    // 인트로 메시지 표시
+    intro(title) {
+        intro(this.currentTheme.highlight(title));
+    }
+
+    // 아웃트로 메시지 표시  
+    outro(title) {
+        outro(this.currentTheme.highlight(title));
+    }
+
     // 진행률 추적기
     createProgressTracker(totalSteps, title = 'Processing') {
         this.totalSteps = totalSteps;
@@ -286,6 +296,42 @@ ${this.currentTheme.info('⚡ Risk Score:')} ${this.getRiskScoreColor(analysis.r
         });
         
         return choice;
+    }
+
+    // Phase 2 Enhanced 메뉴
+    async showEnhancedMainMenu() {
+        const choice = await select({
+            message: 'Enhanced Packmate v2.2.0 - What would you like to do?',
+            options: [
+                { value: 'analyze-advanced', label: '🔬 Advanced Analysis with Team Policy' },
+                { value: 'security-scan', label: '🛡️ Enhanced Security Scan' },
+                { value: 'team-sync', label: '🔄 Sync Team Configuration' },
+                { value: 'policy-check', label: '📋 Policy Compliance Check' },
+                { value: 'cache-optimize', label: '⚡ Optimize Cache Systems' },
+                { value: 'health-check', label: '🏥 System Health Check' },
+                { value: 'team-setup', label: '👥 Setup Team Configuration' },
+                { value: 'statistics', label: '📊 View Statistics' },
+                { value: 'exit', label: '👋 Exit' }
+            ]
+        });
+        
+        return choice;
+    }
+
+    // 팀 프리셋 선택
+    async selectPreset() {
+        const preset = await select({
+            message: 'Select a team configuration preset:',
+            options: [
+                { value: 'strict', label: '🔒 Strict - Maximum security (Enterprise/Financial)' },
+                { value: 'moderate', label: '⚖️ Moderate - Balanced security and velocity' },
+                { value: 'opensource', label: '🌍 Open Source - Community development optimized' },
+                { value: 'startup', label: '🚀 Startup - Fast development with safety nets' },
+                { value: 'loose', label: '🏃 Loose - Minimal restrictions (Prototyping)' }
+            ]
+        });
+        
+        return preset;
     }
 
     async showAdvancedOptions() {

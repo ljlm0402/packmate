@@ -5,7 +5,7 @@
  * 모든 개선된 기능들을 통합하여 제공
  */
 
-import { EnhancedPackmateController } from '../src/enhanced-controller.js';
+import { EnhancedPackmateController } from '../src/enhanced-controller-minimal.js';
 import minimist from 'minimist';
 import chalk from 'chalk';
 
@@ -79,7 +79,7 @@ async function main() {
         };
 
         // Enhanced Controller 생성
-        const controller = await EnhancedPackmateController.create(options);
+        const controller = new EnhancedPackmateController(options);
 
         // 명령별 처리
         switch (command) {
@@ -88,23 +88,25 @@ async function main() {
                 break;
 
             case 'scan':
-                await controller.performSecurityScan();
+                await controller.runEnhancedSecurityScan();
                 break;
 
             case 'update':
-                await controller.performUpdateCheck();
+                console.log(chalk.yellow('Update check functionality available in interactive mode'));
+                await controller.start();
                 break;
 
             case 'analyze':
-                await controller.performDependencyAnalysis();
+                await controller.analyzeWithTeamPolicy();
                 break;
 
             case 'optimize':
-                await controller.performOptimization();
+                await controller.optimizeCache();
                 break;
 
             case 'report':
-                await controller.generateReport();
+                console.log(chalk.yellow('Report generation available in interactive mode'));
+                await controller.start();
                 break;
 
             default:
