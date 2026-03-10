@@ -1,0 +1,61 @@
+{
+  "//": "Packmate v2.2.0 Configuration File",
+  "//": "점진적 개발 중 추가된 보안/캐싱 기능 설정",
+  
+  "ignorePatterns": [
+    "@types/*",
+    "eslint-*"
+  ],
+  
+  "analysisMode": {
+    "unused": "moderate",
+    "devDeps": true
+  },
+  
+  "ui": {
+    "groupSessions": true,
+    "colorScheme": "auto",
+    "defaultChecked": {
+      "updateAvailable": true,
+      "unused": false,
+      "notInstalled": true,
+      "latest": false,
+      "security": true
+    }
+  },
+  
+  "security": {
+    "enabled": true,
+    "autoSelectCritical": true,
+    "autoSelectHigh": true,
+    "showLowPriority": false,
+    "sources": ["npm-audit"]
+  },
+  
+  "cache": {
+    "enabled": true,
+    "memorySize": 1000,
+    "diskTTL": 3600000,
+    "showStats": true,
+    "autoCleanup": true,
+    "maxAge": 604800000
+  },
+  
+  "detection": {
+    "dynamicImport": true,
+    "conditionalRequire": true,
+    "ignoreUnused": [
+      "eslint",
+      "prettier",
+      "jest",
+      "nodemon",
+      "webpack",
+      "vite",
+      "babel",
+      "mocha",
+      "ava",
+      "ts-node",
+      "typescript"
+    ]
+  }
+}

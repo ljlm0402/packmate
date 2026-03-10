@@ -1,6 +1,7 @@
 import { multiselect, isCancel, cancel, note, confirm } from '@clack/prompts';
 import chalk from 'chalk';
 import semver from 'semver';
+import { SEVERITY_LEVELS } from './security-checker.js';
 
 /**
  * Update Available Session - Grouped by Patch, Minor, Major updates
@@ -264,4 +265,152 @@ export async function latestSession(packages, config) {
     });
 
     return [];
+}
+
+/**
+ * Security Vulnerabilities Session - Grouped by severity level
+ */
+export async function securitySession(securityResults, config) {
+    const { classified, grouped, summary } = securityResults;
+
+    if (summary.total === 0) {
+        console.log('\n' + chalk.green.bold('🛡️  Security Scan Complete'));
+        console.log(chalk.green('   ✅ No vulnerabilities found!'));
+        return [];
+    }
+
+    const selected = [];
+
+    // Critical Vulnerabilities
+    if (classified[SEVERITY_LEVELS.CRITICAL]?.length > 0) {
+        console.log('\n' + chalk.red.bgWhite.bold(`🚨 CRITICAL Vulnerabilities (${classified[SEVERITY_LEVELS.CRITICAL].length})`));
+        console.log(chalk.red.bold('   ⚠️  IMMEDIATE ACTION REQUIRED - Production Risk!'));
+
+        const criticalChoices = classified[SEVERITY_LEVELS.CRITICAL].map((vuln) => ({
+            label: `${chalk.red.bold(vuln.packageName)}  ${chalk.red(vuln.title)}  ${chalk.bgRed.white('[CRITICAL]')}`,
+            value: vuln.packageName,
+            hint: `CVE: ${vuln.cve || 'N/A'} | ${vuln.description?.substring(0, 50)}...`,
+        }));
+
+        const criticalSelected = await multiselect({
+            message: chalk.red.bold('Select packages to update (STRONGLY RECOMMENDED):'),
+            options: criticalChoices,
+            initialValues: config?.security?.autoSelectCritical !== false ? criticalChoices.map((c) => c.value) : [],
+            required: false,
+        });
+
+        if (isCancel(criticalSelected)) {
+            cancel(chalk.red('Operation cancelled.'));
+            process.exit(0);
+        }
+
+        criticalSelected.forEach((packageName) => {
+            const vulns = classified[SEVERITY_LEVELS.CRITICAL].filter(v => v.packageName === packageName);
+            selected.push({ packageName, vulnerabilities: vulns, action: 'update', priority: 'critical' });
+        });
+    }
+
+    // High Vulnerabilities
+    if (classified[SEVERITY_LEVELS.HIGH]?.length > 0) {
+        console.log('\n' + chalk.red.bold(`⚠️  HIGH Vulnerabilities (${classified[SEVERITY_LEVELS.HIGH].length})`));
+        console.log(chalk.yellow('   Recommended to update soon'));
+
+        const highChoices = classified[SEVERITY_LEVELS.HIGH].map((vuln) => ({
+            label: `${chalk.red(vuln.packageName)}  ${chalk.yellow(vuln.title)}  ${chalk.bgYellow.black('[HIGH]')}`,
+            value: vuln.packageName,
+            hint: `CVE: ${vuln.cve || 'N/A'} | ${vuln.description?.substring(0, 50)}...`,
+        }));
+
+        const highSelected = await multiselect({
+            message: 'Select packages to update (recommended):',
+            options: highChoices,
+            initialValues: config?.security?.autoSelectHigh !== false ? highChoices.map((c) => c.value) : [],
+            required: false,
+        });
+
+        if (isCancel(highSelected)) {
+            cancel(chalk.red('Operation cancelled.'));
+            process.exit(0);
+        }
+
+        highSelected.forEach((packageName) => {
+            const vulns = classified[SEVERITY_LEVELS.HIGH].filter(v => v.packageName === packageName);
+            selected.push({ packageName, vulnerabilities: vulns, action: 'update', priority: 'high' });
+        });
+    }
+
+    // Moderate Vulnerabilities
+    if (classified[SEVERITY_LEVELS.MODERATE]?.length > 0) {
+        console.log('\n' + chalk.yellow.bold(`💛 MODERATE Vulnerabilities (${classified[SEVERITY_LEVELS.MODERATE].length})`));
+        console.log(chalk.yellow('   Consider updating when convenient'));
+
+        const moderateChoices = classified[SEVERITY_LEVELS.MODERATE].map((vuln) => ({
+            label: `${chalk.yellow(vuln.packageName)}  ${vuln.title}  ${chalk.bgYellow.black('[MODERATE]')}`,
+            value: vuln.packageName,
+            hint: `CVE: ${vuln.cve || 'N/A'} | ${vuln.description?.substring(0, 50)}...`,
+        }));
+
+        const moderateSelected = await multiselect({
+            message: 'Select packages to update (optional):',
+            options: moderateChoices,
+            required: false,
+        });
+
+        if (isCancel(moderateSelected)) {
+            cancel(chalk.red('Operation cancelled.'));
+            process.exit(0);
+        }
+
+        moderateSelected.forEach((packageName) => {
+            const vulns = classified[SEVERITY_LEVELS.MODERATE].filter(v => v.packageName === packageName);
+            selected.push({ packageName, vulnerabilities: vulns, action: 'update', priority: 'moderate' });
+        });
+    }
+
+    // Low Vulnerabilities (설정에 따라 표시)
+    if (classified[SEVERITY_LEVELS.LOW]?.length > 0 && config?.security?.showLowPriority !== false) {
+        console.log('\n' + chalk.dim.bold(`ℹ️  LOW/INFO Vulnerabilities (${classified[SEVERITY_LEVELS.LOW].length})`));
+        console.log(chalk.dim('   Low priority - update when major version changes'));
+
+        const showLow = await confirm({
+            message: chalk.dim(`Review low-priority vulnerabilities?`),
+            initialValue: false,
+        });
+
+        if (showLow && !isCancel(showLow)) {
+            const lowChoices = classified[SEVERITY_LEVELS.LOW].map((vuln) => ({
+                label: `${chalk.dim(vuln.packageName)}  ${chalk.dim(vuln.title)}  ${chalk.bgGray.black('[LOW]')}`,
+                value: vuln.packageName,
+                hint: `CVE: ${vuln.cve || 'N/A'} | ${vuln.description?.substring(0, 50)}...`,
+            }));
+
+            const lowSelected = await multiselect({
+                message: 'Select packages to update (low priority):',
+                options: lowChoices,
+                required: false,
+            });
+
+            if (!isCancel(lowSelected)) {
+                lowSelected.forEach((packageName) => {
+                    const vulns = classified[SEVERITY_LEVELS.LOW].filter(v => v.packageName === packageName);
+                    selected.push({ packageName, vulnerabilities: vulns, action: 'update', priority: 'low' });
+                });
+            }
+        }
+    }
+
+    // Final confirmation for critical/high vulnerabilities
+    if (selected.some(s => ['critical', 'high'].includes(s.priority)) && selected.length > 0) {
+        const confirmSecurity = await confirm({
+            message: chalk.green(`🛡️  Proceed with security updates for ${selected.length} package(s)?`),
+            initialValue: true,
+        });
+
+        if (isCancel(confirmSecurity) || !confirmSecurity) {
+            note(chalk.yellow('Security updates skipped. Consider updating manually.'), 'Security Warning');
+            return [];
+        }
+    }
+
+    return selected;
 }

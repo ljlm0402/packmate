@@ -21,7 +21,23 @@ const DEFAULT_CONFIG = {
             unused: false,
             notInstalled: true,
             latest: false,
+            security: true,  // 보안 업데이트는 기본 선택됨
         },
+    },
+    security: {
+        enabled: true,              // 보안 검사 활성화
+        autoSelectCritical: true,   // Critical 취약성 자동 선택
+        autoSelectHigh: true,       // High 취약성 자동 선택
+        showLowPriority: false,     // Low priority 취약성 표시할지
+        sources: ['npm-audit'],     // 검사할 취약성 소스
+    },
+    cache: {
+        enabled: true,              // 캐싱 활성화
+        memorySize: 1000,           // 메모리 캐시 크기
+        diskTTL: 3600000,          // 디스크 캐시 TTL (1시간)
+        showStats: true,            // 캐시 통계 표시
+        autoCleanup: true,          // 자동 정리
+        maxAge: 604800000,          // 최대 보관 기간 (7일)
     },
     detection: {
         dynamicImport: true,
