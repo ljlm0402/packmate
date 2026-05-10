@@ -89,7 +89,6 @@ class DiskCache {
             }
 
             this.isInitialized = true;
-            console.log(`📁 Cache initialized: ${this.cacheDir}`);
         } catch (error) {
             console.warn(`⚠️  Disk cache init failed: ${error.message}`);
             this.index = {};
@@ -106,7 +105,7 @@ class DiskCache {
 
     getCacheFilePath(packageName) {
         // 패키지명을 파일시스템 안전한 이름으로 변환
-        const safeName = packageName.replace(/[@\/]/g, '_');
+        const safeName = packageName.replace(/[@/]/g, '_');
         return path.join(this.cacheDir, `${safeName}.json`);
     }
 

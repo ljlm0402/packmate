@@ -4,6 +4,8 @@
  */
 
 import { execSync } from 'child_process';
+import fs from 'fs';
+import path from 'path';
 import process from 'process';
 
 // 취약성 심각도 분류
@@ -26,7 +28,9 @@ export class Vulnerability {
         patchedVersions,
         cve,
         advisoryUrl,
-        source = 'npm'
+        source = 'npm',
+        direct = false,
+        fixAvailable = null
     }) {
         this.packageName = packageName;
         this.severity = severity;
@@ -37,7 +41,24 @@ export class Vulnerability {
         this.cve = cve;
         this.advisoryUrl = advisoryUrl;
         this.source = source;
+        this.direct = direct;
+        this.fixAvailable = fixAvailable;
         this.detectedAt = new Date().toISOString();
+    }
+}
+
+function getDeclaredPackageNames() {
+    try {
+        const pkgPath = path.resolve(process.cwd(), 'package.json');
+        const pkgJson = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+        return new Set([
+            ...Object.keys(pkgJson.dependencies || {}),
+            ...Object.keys(pkgJson.devDependencies || {}),
+            ...Object.keys(pkgJson.optionalDependencies || {}),
+            ...Object.keys(pkgJson.peerDependencies || {}),
+        ]);
+    } catch {
+        return new Set();
     }
 }
 
@@ -75,6 +96,7 @@ export async function checkNpmAudit() {
  */
 function parseNpmAuditResult(auditData) {
     const vulnerabilities = [];
+    const declaredPackages = getDeclaredPackageNames();
     
     // npm audit v7+ 형식 (advisories)
     if (auditData.advisories) {
@@ -88,7 +110,8 @@ function parseNpmAuditResult(auditData) {
                 patchedVersions: advisory.patched_versions,
                 cve: advisory.cves?.[0] || null,
                 advisoryUrl: advisory.url,
-                source: 'npm-audit'
+                source: 'npm-audit',
+                direct: declaredPackages.has(advisory.module_name)
             });
             vulnerabilities.push(vulnerability);
         }
@@ -109,7 +132,9 @@ function parseNpmAuditResult(auditData) {
                             patchedVersions: 'See advisory',
                             cve: via.cve?.join(', ') || null,
                             advisoryUrl: via.url,
-                            source: 'npm-audit'
+                            source: 'npm-audit',
+                            direct: declaredPackages.has(packageName),
+                            fixAvailable: vulnInfo.fixAvailable || null
                         });
                         vulnerabilities.push(vulnerability);
                     }
@@ -178,16 +203,14 @@ export function classifyBySeverity(vulnerabilities) {
  * 메인 보안 검사 함수
  */
 export async function checkVulnerabilities() {
-    console.log('🔍 Running security vulnerability scan...');
-    
     try {
         // 현재는 npm audit만 지원, 향후 확장 예정
         const npmVulns = await checkNpmAudit();
-        
-        console.log(`📊 Found ${npmVulns.length} potential vulnerabilities`);
-        
+
         const classified = classifyBySeverity(npmVulns);
         const grouped = groupVulnerabilitiesByPackage(npmVulns);
+        const direct = npmVulns.filter((vuln) => vuln.direct);
+        const transitive = npmVulns.filter((vuln) => !vuln.direct);
         
         return {
             vulnerabilities: npmVulns,
@@ -195,6 +218,8 @@ export async function checkVulnerabilities() {
             grouped: grouped,
             summary: {
                 total: npmVulns.length,
+                direct: direct.length,
+                transitive: transitive.length,
                 critical: classified[SEVERITY_LEVELS.CRITICAL].length,
                 high: classified[SEVERITY_LEVELS.HIGH].length,
                 moderate: classified[SEVERITY_LEVELS.MODERATE].length,
@@ -209,7 +234,7 @@ export async function checkVulnerabilities() {
             vulnerabilities: [],
             classified: {},
             grouped: {},
-            summary: { total: 0, critical: 0, high: 0, moderate: 0, low: 0, info: 0 }
+            summary: { total: 0, direct: 0, transitive: 0, critical: 0, high: 0, moderate: 0, low: 0, info: 0 }
         };
     }
 }
@@ -224,22 +249,26 @@ export function formatSecuritySummary(securityResults) {
         return '✅ No vulnerabilities found!';
     }
     
-    let output = `🔍 Security Scan Results:\n`;
+    let output = `Security: ${summary.total} advisories`;
+    if (summary.direct !== undefined && summary.transitive !== undefined) {
+        output += ` (${summary.direct} direct, ${summary.transitive} transitive)`;
+    }
+    output += '\n';
     
     if (summary.critical > 0) {
-        output += `🚨 Critical: ${summary.critical}\n`;
+        output += `Critical: ${summary.critical}\n`;
     }
     if (summary.high > 0) {
-        output += `⚠️  High: ${summary.high}\n`;
+        output += `High: ${summary.high}\n`;
     }
     if (summary.moderate > 0) {
-        output += `💛 Moderate: ${summary.moderate}\n`;
+        output += `Moderate: ${summary.moderate}\n`;
     }
     if (summary.low > 0) {
-        output += `ℹ️  Low: ${summary.low}\n`;
+        output += `Low: ${summary.low}\n`;
     }
     if (summary.info > 0) {
-        output += `📋 Info: ${summary.info}\n`;
+        output += `Info: ${summary.info}\n`;
     }
     
     return output.trim();

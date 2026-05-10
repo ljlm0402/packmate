@@ -8,6 +8,7 @@ import process from 'process';
  */
 
 const DEFAULT_CONFIG = {
+    packageManager: null,
     ignorePatterns: ['@types/*'],
     analysisMode: {
         unused: 'moderate', // conservative | moderate | aggressive
@@ -42,6 +43,15 @@ const DEFAULT_CONFIG = {
     detection: {
         dynamicImport: true,
         conditionalRequire: true,
+        ignorePaths: [
+            'node_modules/**',
+            'backup/**',
+            'dist/**',
+            'build/**',
+            'coverage/**',
+            '.git/**',
+            '.packmate/**',
+        ],
         ignoreUnused: [
             'eslint',
             'prettier',
@@ -90,6 +100,26 @@ export function loadConfig() {
     }
 
     return config;
+}
+
+/**
+ * packmate.config.json에 설정을 저장합니다.
+ */
+export function saveProjectConfig(partialConfig) {
+    const configPath = path.resolve(process.cwd(), 'packmate.config.json');
+    let currentConfig = {};
+
+    if (fs.existsSync(configPath)) {
+        try {
+            currentConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        } catch {
+            currentConfig = {};
+        }
+    }
+
+    const nextConfig = mergeConfig(currentConfig, partialConfig);
+    fs.writeFileSync(configPath, JSON.stringify(nextConfig, null, 2) + '\n');
+    return nextConfig;
 }
 
 /**

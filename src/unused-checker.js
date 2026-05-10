@@ -114,7 +114,11 @@ export async function runUnusedCheck({ withUsedList = false } = {}) {
     '.cjs': 'commonjs',
   };
 
-  const files = await globby(['**/*.{js,ts,jsx,tsx,mjs,cjs}', '!node_modules/**']);
+  const ignorePaths = config.detection?.ignorePaths || [];
+  const files = await globby([
+    '**/*.{js,ts,jsx,tsx,mjs,cjs}',
+    ...ignorePaths.map((pattern) => `!${pattern}`),
+  ]);
 
   // 성능 향상을 위해 파일을 병렬로 처리
   const concurrency = Math.max(os.cpus().length, 4);
@@ -136,7 +140,9 @@ export async function runUnusedCheck({ withUsedList = false } = {}) {
         if (pkgName) fileDeps.add(pkgName);
       });
     } catch (e) {
-      console.warn(`precinct parse failed in "${file}": ${e.message}`);
+      if (config.ui?.verbose) {
+        console.warn(`precinct parse failed in "${file}": ${e.message}`);
+      }
     }
 
     // 2. 동적 import 감지

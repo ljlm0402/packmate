@@ -10,7 +10,7 @@
  * Made with ❤️ by AGUMON 🦖
  *****************************************************************/
 
-import { intro, outro, note, spinner } from '@clack/prompts';
+import { intro, outro, note, select, isCancel, cancel, confirm, spinner } from '@clack/prompts';
 import chalk from 'chalk';
 import depcheck from 'depcheck';
 import fs from 'fs';
@@ -19,11 +19,15 @@ import path from 'path';
 import process from 'process';
 import { getUpdateCandidates } from '../src/update-checker.js';
 import { runUnusedCheck } from '../src/unused-checker.js';
-import { detectPackageManager } from '../src/detect-package-manager.js';
+import {
+  detectPackageManager,
+  getPackageManagerInfo,
+  setDetectedPackageManager,
+} from '../src/detect-package-manager.js';
 import { installPackages, uninstallPackages } from '../src/install-helper.js';
 import { runWithWarningCapture, setProcessTracker } from '../src/warning-capture.js';
-import { loadConfig } from '../src/config-loader.js';
-import { checkVulnerabilities, formatSecuritySummary } from '../src/security-checker.js';
+import { loadConfig, saveProjectConfig } from '../src/config-loader.js';
+import { checkVulnerabilities } from '../src/security-checker.js';
 import { getCacheManager } from '../src/enhanced-cache.js';
 import {
   updateAvailableSession,
@@ -38,6 +42,198 @@ const require = createRequire(import.meta.url);
 // 글로벌 상태: 실행 중인 프로세스 추적
 let runningProcesses = new Set();
 let isExiting = false;
+
+async function resolvePackageManager(config) {
+  const { found, available } = getPackageManagerInfo();
+
+  if (available.length === 0) {
+    console.error(chalk.red('No package manager found. Please install npm, yarn, or pnpm.'));
+    process.exit(1);
+  }
+
+  const availableLockManagers = found.filter((item) => item.available);
+
+  if (config.packageManager && available.includes(config.packageManager)) {
+    setDetectedPackageManager(config.packageManager);
+    return config.packageManager;
+  }
+
+  if (availableLockManagers.length > 1) {
+    const selected = await select({
+      message: 'Multiple lock files found. Which package manager should PackMate use?',
+      options: availableLockManagers.map((item) => ({
+        label: item.name,
+        value: item.name,
+        hint: path.basename(item.filePath),
+      })),
+      initialValue: availableLockManagers[0].name,
+    });
+
+    if (isCancel(selected)) {
+      cancel(chalk.red('Operation cancelled.'));
+      process.exit(0);
+    }
+
+    setDetectedPackageManager(selected);
+
+    const remember = await confirm({
+      message: `Use ${selected} by default for this project?`,
+      initialValue: true,
+    });
+
+    if (!isCancel(remember) && remember) {
+      saveProjectConfig({ packageManager: selected });
+      console.log(chalk.dim(`Saved package manager preference: ${selected}`));
+    }
+
+    return selected;
+  }
+
+  if (availableLockManagers.length === 1) {
+    setDetectedPackageManager(availableLockManagers[0].name);
+    return availableLockManagers[0].name;
+  }
+
+  return detectPackageManager({ silent: true });
+}
+
+function renderAnalysisSummary({
+  updateCount,
+  unusedCount,
+  notInstalledCount,
+  latestCount,
+  securitySummary,
+}) {
+  const hasSecurityIssues = securitySummary.total > 0;
+  const formatRow = (label, count, detail, color = chalk.white) => {
+    const labelText = label.padEnd(10);
+    const countText = String(count).padEnd(13);
+    console.log(`  ${labelText} ${color(countText)} ${chalk.dim(detail)}`);
+  };
+
+  console.log('\n' + chalk.cyan.bold('Analysis Summary'));
+  console.log(chalk.dim(`  ${'Category'.padEnd(10)} ${'Count'.padEnd(13)} Details`));
+  formatRow('Updates', updateCount, 'Available package updates', chalk.cyan);
+  formatRow('Unused', unusedCount, 'Possible cleanup candidates', chalk.yellow);
+  formatRow('Missing', notInstalledCount, 'Declared but not installed', chalk.cyan);
+  formatRow('Current', latestCount, 'Already up-to-date', chalk.green);
+  formatRow(
+    'Security',
+    hasSecurityIssues ? `${securitySummary.total} advisories` : '0 advisories',
+    hasSecurityIssues
+      ? `${securitySummary.direct || 0} direct, ${securitySummary.transitive || 0} transitive`
+      : 'No known advisories',
+    hasSecurityIssues ? chalk.red.bold : chalk.green,
+  );
+}
+
+function getActionPackageName(action) {
+  return action.packageName || action.name;
+}
+
+async function resolveConflictingActions(actions) {
+  const byPackage = new Map();
+
+  actions.forEach((action) => {
+    const packageName = getActionPackageName(action);
+    if (!packageName) return;
+
+    if (!byPackage.has(packageName)) {
+      byPackage.set(packageName, []);
+    }
+    byPackage.get(packageName).push(action);
+  });
+
+  const resolved = [...actions];
+
+  for (const [packageName, packageActions] of byPackage.entries()) {
+    const securityUpdate = packageActions.find((action) => action.action === 'update' && action.packageName);
+    const remove = packageActions.find((action) => action.action === 'remove');
+
+    if (!securityUpdate || !remove) continue;
+
+    const choice = await select({
+      message: `${packageName} is both vulnerable and marked unused. What should PackMate do?`,
+      options: [
+        {
+          label: 'Remove package',
+          value: 'remove',
+          hint: 'Best if it is truly unused',
+        },
+        {
+          label: 'Update package',
+          value: 'update',
+          hint: 'Use if the package is still needed',
+        },
+        {
+          label: 'Skip for now',
+          value: 'skip',
+          hint: 'Make no change to this package',
+        },
+      ],
+      initialValue: 'remove',
+    });
+
+    if (isCancel(choice)) {
+      cancel(chalk.red('Operation cancelled.'));
+      process.exit(0);
+    }
+
+    for (let i = resolved.length - 1; i >= 0; i--) {
+      const action = resolved[i];
+      if (getActionPackageName(action) !== packageName) continue;
+
+      if (choice === 'remove' && action !== remove) {
+        resolved.splice(i, 1);
+      }
+      if (choice === 'update' && action !== securityUpdate) {
+        resolved.splice(i, 1);
+      }
+      if (choice === 'skip') {
+        resolved.splice(i, 1);
+      }
+    }
+  }
+
+  return resolved;
+}
+
+async function confirmActions(actions) {
+  const removes = actions.filter((action) => action.action === 'remove');
+  const securityUpdates = actions.filter((action) => action.action === 'update' && action.packageName);
+  const regularUpdates = actions.filter((action) => action.action === 'update' && !action.packageName);
+  const installs = actions.filter((action) => action.action === 'install');
+
+  console.log('\n' + chalk.cyan.bold('Review Actions'));
+  if (removes.length > 0) {
+    console.log(chalk.red.bold(`  Remove (${removes.length})`));
+    removes.forEach((action) => console.log(chalk.red(`    - ${action.name}`)));
+  }
+  if (securityUpdates.length > 0) {
+    console.log(chalk.yellow.bold(`  Security updates (${securityUpdates.length})`));
+    securityUpdates.forEach((action) => console.log(chalk.yellow(`    - ${action.packageName} (${action.priority})`)));
+  }
+  if (regularUpdates.length > 0) {
+    console.log(chalk.cyan.bold(`  Updates (${regularUpdates.length})`));
+    regularUpdates.forEach((action) => console.log(chalk.cyan(`    - ${action.name} → ${action.latestVersion}`)));
+  }
+  if (installs.length > 0) {
+    console.log(chalk.cyan.bold(`  Install (${installs.length})`));
+    installs.forEach((action) => console.log(chalk.cyan(`    - ${action.name}`)));
+  }
+
+  const confirmed = await confirm({
+    message: `Proceed with ${actions.length} action(s)?`,
+    initialValue: true,
+  });
+
+  if (isCancel(confirmed) || !confirmed) {
+    console.log(chalk.yellow('\nNo changes were made.'));
+    return false;
+  }
+
+  return true;
+}
 
 /**
  * 깨끗한 종료 처리
@@ -212,19 +408,19 @@ async function main() {
     process.exit(0);
   }
 
-  const packageManager = detectPackageManager();
-  note(chalk.dim(`Package Manager: ${packageManager}`), 'Info');
-
-  const s = spinner();
+  const packageManager = await resolvePackageManager(config);
+  const analysisSpinner = spinner();
 
   // 1. 미사용 패키지 먼저 분석 (업데이트 필터링용)
-  s.start('Analyzing unused packages...');
+  analysisSpinner.start('Scanning project files...');
   const unused_precinct = await runUnusedCheck({ withUsedList: true });
 
   // depcheck로 교차 검증
-  const depcheckResult = await depcheck(process.cwd(), {});
+  analysisSpinner.message('Checking dependency usage...');
+  const depcheckResult = await depcheck(process.cwd(), {
+    ignoreDirs: ['node_modules', 'backup', 'dist', 'build', 'coverage', '.git', '.packmate'],
+  });
   const unused_depcheck = depcheckResult.dependencies || [];
-  s.stop('✅ Unused package analysis complete');
 
   // 신뢰도별 분류
   const bothUnused = unused_precinct.unused.filter((x) => unused_depcheck.includes(x));
@@ -235,14 +431,15 @@ async function main() {
   const allUnusedNames = [...bothUnused, ...onlyPrecinct, ...onlyDepcheck];
 
   // 2. 업데이트 가능한 패키지 분석 (미사용 패키지 제외)
-  s.start('Checking for available updates...');
-  const allUpdateCandidates = await getUpdateCandidates(packageManager);
+  analysisSpinner.message('Checking available updates...');
+  const allUpdateCandidates = await getUpdateCandidates(packageManager, {
+    showProgress: config.ui?.showProgress === true,
+  });
 
   // 업데이트 후보에서 미사용 패키지 필터링
   const updateCandidates = allUpdateCandidates.filter(
     (candidate) => !allUnusedNames.includes(candidate.name)
   );
-  s.stop(`✅ Found ${updateCandidates.length} packages with available updates`);
 
   const unusedPackages = [
     ...bothUnused.map((dep) => ({
@@ -266,9 +463,8 @@ async function main() {
   ];
 
   // 3. 미설치 패키지 확인
-  s.start('Checking for not installed packages...');
+  analysisSpinner.message('Checking install state...');
   const notInstalled = getNotInstalledPackages();
-  s.stop(`✅ Found ${notInstalled.length} not installed packages`);
 
   const notInstalledPackages = notInstalled.map((dep) => ({
     name: dep,
@@ -277,25 +473,27 @@ async function main() {
   }));
 
   // 4. 보안 취약성 검사 (설정에 따라)
-  let securityResults = { vulnerabilities: [], classified: {}, grouped: {}, summary: { total: 0 } };
+  let securityResults = {
+    vulnerabilities: [],
+    classified: {},
+    grouped: {},
+    summary: { total: 0, direct: 0, transitive: 0, critical: 0, high: 0, moderate: 0, low: 0, info: 0 },
+  };
   
   if (config.security?.enabled !== false) {
-    s.start('Running security vulnerability scan...');
-    
     try {
+      analysisSpinner.message('Checking security advisories...');
       securityResults = await checkVulnerabilities();
-      if (securityResults.summary.total > 0) {
-        s.stop(chalk.yellow(`⚠️ ${securityResults.summary.total} vulnerabilities detected`));
-        console.log(chalk.dim(formatSecuritySummary(securityResults)));
-      } else {
-        s.stop('✅ No security vulnerabilities found');
-      }
     } catch (error) {
-      s.stop(chalk.yellow('⚠️ Security scan failed'));
+      analysisSpinner.stop('Project analyzed');
       console.warn(chalk.dim('Security scan could not be completed. Continuing...'));
     }
   } else {
+    analysisSpinner.stop('Project analyzed');
     console.log(chalk.dim('🔒 Security scan disabled in config'));
+  }
+  if (config.security?.enabled !== false) {
+    analysisSpinner.stop('Project analyzed');
   }
 
   // 5. 최신 버전 패키지
@@ -320,39 +518,41 @@ async function main() {
     }
   }
 
-  // === 분석 결과 요약 ===
-  // console.log를 사용하여 더 나은 포맷팅
-  console.log('\n' + chalk.cyan.bold('📊 Analysis Results:'));
-  console.log(chalk.cyan(`   Updates available: ${updateCandidates.length}`));
-  console.log(chalk.cyan(`   Unused:            ${unusedPackages.length}`));
-  console.log(chalk.cyan(`   Not installed:     ${notInstalledPackages.length}`));
-  console.log(chalk.cyan(`   Up-to-date:        ${latestPackages.length}`));
-  if (securityResults.summary.total > 0) {
-    console.log(chalk.red(`   Vulnerabilities:   ${securityResults.summary.total} (${securityResults.summary.critical} critical, ${securityResults.summary.high} high)`));
-  } else {
-    console.log(chalk.green(`   Vulnerabilities:   0 (secure)`));
-  }
+  renderAnalysisSummary({
+    updateCount: updateCandidates.length,
+    unusedCount: unusedPackages.length,
+    notInstalledCount: notInstalledPackages.length,
+    latestCount: latestPackages.length,
+    securitySummary: securityResults.summary,
+  });
 
-  const selectedActions = [];
+  let selectedActions = [];
 
   // === 그룹별 UI 세션 실행 ===
   if (config.ui?.groupSessions) {
-    // 0. 보안 취약성 세션 (최우선)
-    if (securityResults.summary.total > 0) {
-      const securitySelected = await securitySession(securityResults, config);
-      selectedActions.push(...securitySelected);
-    }
-
-    // 1. 업데이트 가능 세션
-    if (updateCandidates.length > 0) {
-      const updateSelected = await updateAvailableSession(updateCandidates, config);
-      selectedActions.push(...updateSelected);
-    }
-
-    // 2. 미사용 패키지 세션
+    // 0. 미사용 패키지 정리 후보를 먼저 확인합니다.
+    // 사용하지 않는 패키지는 업데이트보다 제거가 더 적절할 수 있습니다.
     if (unusedPackages.length > 0) {
       const unusedSelected = await unusedSession(unusedPackages, config);
       selectedActions.push(...unusedSelected);
+    }
+
+    const selectedRemoveNames = selectedActions
+      .filter((action) => action.action === 'remove')
+      .map((action) => action.name);
+
+    // 1. 보안 취약성 세션
+    if (securityResults.summary.total > 0) {
+      const securitySelected = await securitySession(securityResults, config, {
+        excludePackages: selectedRemoveNames,
+      });
+      selectedActions.push(...securitySelected);
+    }
+
+    // 2. 업데이트 가능 세션
+    if (updateCandidates.length > 0) {
+      const updateSelected = await updateAvailableSession(updateCandidates, config);
+      selectedActions.push(...updateSelected);
     }
 
     // 3. 미설치 패키지 세션
@@ -379,20 +579,19 @@ async function main() {
     return;
   }
 
-  note(
-    chalk.cyan(
-      `\n📝 Actions to execute:\n${selectedActions.map((a) => {
-        if (a.action === 'update' && a.packageName) {
-          // 보안 업데이트
-          return `  - Security update: ${a.packageName} (${a.priority} priority)`;
-        } else {
-          // 일반 업데이트
-          return `  - ${a.action}: ${a.name}${a.latestVersion ? '@' + a.latestVersion : ''}`;
-        }
-      }).join('\n')}`,
-    ),
-    'Actions',
-  );
+  selectedActions = await resolveConflictingActions(selectedActions);
+
+  if (selectedActions.length === 0) {
+    note(chalk.yellow('No actions selected.'), 'Info');
+    outro(chalk.bold.cyan('Packmate complete! 👋'));
+    return;
+  }
+
+  const confirmed = await confirmActions(selectedActions);
+  if (!confirmed) {
+    outro(chalk.bold.cyan('Packmate complete! 👋'));
+    return;
+  }
 
   // 보안 업데이트 실행 (우선순위: critical > high > moderate > low)
   const securityUpdates = selectedActions.filter((a) => a.action === 'update' && a.packageName);

@@ -124,19 +124,24 @@ async function setCachedVersion(packageName, version) {
 /**
  * 각 패키지의 최신 버전을 가져옵니다 (Smart Caching)
  */
-export async function getLatestVersions(pkgs) {
+export async function getLatestVersions(pkgs, { showProgress = false } = {}) {
   await initSmartCache();
 
   const total = pkgs.length;
 
   // 진행률 표시줄 인스턴스
-  const bar = new cliProgress.SingleBar({
-    format: 'Progress |{bar}| {value}/{total} ({percentage}%)',
-    barCompleteChar: '\u2588',
-    barIncompleteChar: '\u2591',
-    hideCursor: true,
-  });
-  bar.start(total, 0);
+  const bar = showProgress
+    ? new cliProgress.SingleBar({
+        format: 'Progress |{bar}| {value}/{total} ({percentage}%)',
+        barCompleteChar: '\u2588',
+        barIncompleteChar: '\u2591',
+        hideCursor: true,
+      })
+    : null;
+
+  if (bar) {
+    bar.start(total, 0);
+  }
 
   let completed = 0;
 
@@ -174,19 +179,23 @@ export async function getLatestVersions(pkgs) {
       return [pkg, null];
     } finally {
       completed += 1;
-      bar.update(completed);
+      if (bar) {
+        bar.update(completed);
+      }
     }
   }
 
   // CPU 코어 기반 동시성 최적화 (최대 16)
   const concurrency = Math.min(Math.max(os.cpus().length * 2, 8), 16);
   const results = await pMap(pkgs, getLatest, { concurrency });
-  bar.stop();
+  if (bar) {
+    bar.stop();
+  }
 
   return Object.fromEntries(results);
 }
 
-export async function getUpdateCandidates(packageManager = 'npm') {
+export async function getUpdateCandidates(packageManager = 'npm', options = {}) {
   const pkgJson = getPkgJson();
   const lockJson = getLockJson(packageManager);
 
@@ -195,7 +204,7 @@ export async function getUpdateCandidates(packageManager = 'npm') {
   const depNames = Object.keys(deps);
 
   // 최신 버전 한 번에 조회
-  const latests = await getLatestVersions(depNames);
+  const latests = await getLatestVersions(depNames, options);
 
   for (const pkgName of depNames) {
     const currentVersion = getInstalledVersion(pkgName, lockJson, pkgJson);

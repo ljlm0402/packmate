@@ -58,8 +58,8 @@ Packmate는 Node.js 프로젝트 의존성을 관리, 업데이트 및 정리하
 
 ## 🤖 왜 Packmate인가요?
 
-- **⚡ 성능**: 3단계 캐싱 시스템으로 6배 더 빠름 (메모리 + 디스크 + 네트워크)
-- **🎯 정확성**: 개발 도구 인텔리전스로 90% 이상의 미사용 패키지 탐지
+- **⚡ 성능**: 캐시와 병렬 처리를 활용해 반복 실행 속도를 개선
+- **🎯 정확성**: 개발 도구 인텔리전스와 교차 검증 기반의 미사용 패키지 탐지
 - **🛡️ 안전성**: 패키지 매니저 스마트 폴백, 미사용 패키지는 업데이트 제외
 - **🎨 명료성**: 그룹별 UI 세션 (Patch/Minor/Major) 및 색상 코딩 업데이트
 - **🔧 유연성**: `packmate.config.json`을 통한 완전한 설정 지원
@@ -70,19 +70,20 @@ Packmate는 Node.js 프로젝트 의존성을 관리, 업데이트 및 정리하
 ### 성능 및 최적화
 - **3단계 캐싱 시스템**: 메모리 → 디스크 (1시간 TTL) → 네트워크
   - 첫 실행: 표준 속도
-  - 두 번째 실행: 캐시된 레지스트리 데이터로 **6배 빠름**
+  - 두 번째 실행: 캐시된 레지스트리 데이터로 더 빠르게 동작
 - **병렬 처리**: 파일 스캔을 위한 멀티코어 CPU 활용 (**2-4배 빠름**)
 - **적응형 동시성**: CPU 코어 기반 동적 요청 제한 (8-16 동시 요청)
 
 ### 스마트 탐지
-- **향상된 미사용 패키지 탐지** (90% 이상 정확도):
+- **향상된 미사용 패키지 탐지**:
   - 동적 import 탐지: `import('module')`
   - 조건부 require 탐지: `try-catch`, `if` 블록
   - DevDependencies 인텔리전스: 빌드 도구, 린터, 타입 정의 인식
   - 교차 검증: precinct + depcheck로 높은 신뢰도
 - **업데이트 탐지**:
   - Patch/Minor/Major별 그룹화 및 색상 코딩
-  - 미사용 패키지 자동으로 업데이트 제안에서 제외
+  - 미사용 패키지를 업데이트보다 먼저 판단
+  - 보안 권고가 있는 direct 의존성 업데이트 후보 표시
   - Semver 기반 버전 비교
 - **설치 탐지**: 선언되었지만 설치되지 않은 패키지 찾기
 
@@ -93,15 +94,15 @@ Packmate는 Node.js 프로젝트 의존성을 관리, 업데이트 및 정리하
   - 🔶 **Major 업데이트** (빨간색): 주요 변경사항, 검토 필요
   - 🗑️ **미사용 패키지**: 높음/중간 신뢰도 레벨
   - 📥 **미설치 패키지**: 누락된 선언 의존성
-  - ✅ **최신 버전**: 정보 표시 목록 (선택 불가)
+  - 🛡️ **보안 권고**: direct/transitive 권고 구분
 - **안전 기능**:
   - Major 업데이트에 대한 확인 프롬프트
   - 주요 변경사항 경고
   - 명확한 작업 요약
 - **시각적 개선**:
   - 색상 코딩된 버전 변경
-  - 긴 작업을 위한 진행률 표시줄
-  - 고정된 콘솔 박스 정렬
+  - 분석 중 멈춘 것처럼 보이지 않도록 진행 상태 표시
+  - 간결한 분석 요약과 최종 작업 검토
 
 ### 설정 및 유연성
 - **스마트 패키지 매니저 탐지**:
@@ -143,60 +144,53 @@ packmate
 ```sh
 ┌  📦 Packmate: Dependency Updates & Cleanup
 │
-◇  Info ─────────────────╮
-│  Package Manager: npm  │
-├────────────────────────╯
-│
-Progress |████████████████████████████████████████| 17/17 (100%)
-◇  ✅ Found 3 packages with available updates
-◇  ✅ Unused package analysis complete
-◇  ✅ Found 0 not installed packages
+◇  Multiple lock files found. Which package manager should PackMate use?
+│  pnpm
 
-📊 Analysis Results:
-   Updates available: 3
-   Unused:            1
-   Not installed:     0
-   Up-to-date:        13
+Analysis Summary
+  Category   Count         Details
+  Updates    7             Available package updates
+  Unused     1             Possible cleanup candidates
+  Missing    0             Declared but not installed
+  Current    9             Already up-to-date
+  Security   2 advisories  1 direct, 1 transitive
+
+🗑️  Unused Packages (High Confidence: 1)
+   Likely safe to remove
+│
+◇  Select packages to remove:
+│  none
+
+Security Risk: High (1)
+   Update recommended
+│
+◇  Select security updates:
+│  lodash  2 advisories
 
 🔶 Major Updates (3)
    ⚠️  Breaking changes possible - Review carefully
 │
 ◇  Select major updates (caution required):
-│  ◼ globby  13.2.2 → 15.0.0  [MAJOR]
-│  ◻ p-retry  6.2.1 → 7.1.0  [MAJOR]
-│  ◻ precinct  10.0.1 → 12.2.0  [MAJOR]
-│
-⚠️  Proceed with 1 major update(s)? Breaking changes may be included.
-│  Yes
-│
-🗑️  Unused Packages (High Confidence: 1)
-   Safe to remove
-│
-◇  Select packages to remove:
 │  none
+
+Review Actions
+  Security updates (1)
+    - lodash (high)
+  Updates (2)
+    - fs-extra → 11.3.5
+    - js-yaml → 4.1.1
 │
-◇  Show already up-to-date packages (13)?
+◇  Proceed with 3 action(s)?
 │  No
 │
-◇  Actions ───────────────────╮
-│  📝 Actions to execute:     │
-│    - update: globby@15.0.0  │
-├─────────────────────────────╯
-│
-> npm install globby@15.0.0
-✔️  Package update completed: globby@15.0.0
-
-✅ Complete:
-   Updated:   1
-   Removed:   0
-   Installed: 0
+No changes were made.
 │
 └  Packmate complete! 🎉
 ```
 
 ## ⚙️ 요구사항
 
-- Node.js v16 이상 (v18+ 권장)
+- Node.js v18 이상
 - npm, yarn, pnpm 지원
 - Mac, Linux, Windows에서 작동
 

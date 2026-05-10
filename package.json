@@ -1,7 +1,7 @@
 {
   "name": "packmate",
   "version": "2.2.0",
-  "description": "Your smart and friendly assistant for dependency updates, security scanning, and cleanup with AI-powered caching, multi-source vulnerability detection, advanced TypeScript analysis, and team collaboration features.",
+  "description": "Your smart and friendly interactive assistant for dependency updates, security advisories, and cleanup.",
   "author": "AGUMON <ljlm0402@gmail.com>",
   "license": "MIT",
   "keywords": [
@@ -11,48 +11,24 @@
     "cleanup",
     "security",
     "vulnerability",
-    "scanner", 
+    "scanner",
     "npm",
     "yarn",
     "pnpm",
     "dependency-manager",
     "remove-unused",
-    "automation",
-    "caching",
-    "worker-pool",
-    "predictive",
-    "compression",
-    "typescript-analysis",
-    "team-collaboration",
-    "policy-validation",
-    "git-hooks",
-    "config-analysis",
-    "dynamic-imports",
     "tool",
     "nodejs"
   ],
   "type": "module",
   "main": "bin/packmate.js",
   "bin": {
-    "packmate": "bin/packmate.js",
-    "packmate-enhanced": "bin/packmate-enhanced.js"
+    "packmate": "bin/packmate.js"
   },
   "scripts": {
     "start": "node bin/packmate.js",
-    "start:enhanced": "node bin/packmate-enhanced.js",
-    "scan": "node bin/packmate-enhanced.js scan",
-    "scan:deep": "node bin/packmate-enhanced.js scan --deep-scan",
-    "analyze": "node bin/packmate-enhanced.js analyze", 
-    "update": "node bin/packmate-enhanced.js update",
-    "report": "node bin/packmate-enhanced.js report",
-    "interactive": "node bin/packmate-enhanced.js interactive",
-    "benchmark": "node scripts/benchmark.js",
-    "test:performance": "node scripts/performance-test.js",
     "format": "prettier --write .",
-    "lint": "eslint .",
-    "build": "napi build --platform --release --manifest-path native/Cargo.toml",
-    "build:debug": "napi build --platform --manifest-path native/Cargo.toml",
-    "artifacts": "napi artifacts --manifest-path native/Cargo.toml"
+    "lint": "eslint ."
   },
   "dependencies": {
     "@clack/prompts": "^0.11.0",
