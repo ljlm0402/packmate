@@ -1,7 +1,7 @@
 {
   "name": "packmate",
-  "version": "2.1.0",
-  "description": "Your smart and friendly assistant for dependency updates and cleanup.",
+  "version": "2.2.0",
+  "description": "Your smart and friendly interactive assistant for dependency updates, security advisories, and cleanup.",
   "author": "AGUMON <ljlm0402@gmail.com>",
   "license": "MIT",
   "keywords": [
@@ -9,12 +9,14 @@
     "dependency",
     "update",
     "cleanup",
+    "security",
+    "vulnerability",
+    "scanner",
     "npm",
     "yarn",
     "pnpm",
     "dependency-manager",
     "remove-unused",
-    "automation",
     "tool",
     "nodejs"
   ],
@@ -26,10 +28,7 @@
   "scripts": {
     "start": "node bin/packmate.js",
     "format": "prettier --write .",
-    "lint": "eslint .",
-    "build": "napi build --platform --release --manifest-path native/Cargo.toml",
-    "build:debug": "napi build --platform --manifest-path native/Cargo.toml",
-    "artifacts": "napi artifacts --manifest-path native/Cargo.toml"
+    "lint": "eslint ."
   },
   "dependencies": {
     "@clack/prompts": "^0.11.0",
@@ -39,6 +38,7 @@
     "fs-extra": "^11.1.1",
     "globby": "^13.2.2",
     "js-yaml": "^4.1.0",
+    "lodash": "^4.17.23",
     "p-map": "^7.0.3",
     "p-retry": "^6.2.1",
     "package-json": "^10.0.1",

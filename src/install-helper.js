@@ -24,13 +24,22 @@ export function installPackages(packages, packageManager) {
   console.log(chalk.yellow(`> ${installCmd} ${pkgList}`));
   try {
     // Windows에서도 작동하도록 shell 옵션 추가
+    // killSignal 옵션으로 신호 중단 지원
     execSync(`${installCmd} ${pkgList}`, { 
       stdio: 'inherit',
-      shell: process.platform === 'win32' ? true : undefined
+      shell: process.platform === 'win32' ? true : undefined,
+      killSignal: 'SIGTERM', // 중단 시 사용할 신호
+      timeout: 0 // 무제한 대기 (중단은 신호로만)
     });
     console.log(chalk.green(`Package install completed: ${pkgList}`));
   } catch (e) {
-    console.error(chalk.red(`Package install failed: ${e.message}`));
+    // 신호로 인한 중단인지 확인
+    if (e.signal === 'SIGTERM' || e.signal === 'SIGINT') {
+      console.log(chalk.yellow(`\n⚠️  Package installation interrupted by ${e.signal}`));
+      throw e; // 상위로 전파하여 graceful exit 처리
+    } else {
+      console.error(chalk.red(`Package install failed: ${e.message}`));
+    }
   }
 }
 
@@ -56,12 +65,21 @@ export function uninstallPackages(packages, packageManager) {
   console.log(chalk.yellow(`> ${uninstallCmd} ${pkgList}`));
   try {
     // Windows에서도 작동하도록 shell 옵션 추가
+    // killSignal 옵션으로 신호 중단 지원
     execSync(`${uninstallCmd} ${pkgList}`, { 
       stdio: 'inherit',
-      shell: process.platform === 'win32' ? true : undefined
+      shell: process.platform === 'win32' ? true : undefined,
+      killSignal: 'SIGTERM', // 중단 시 사용할 신호
+      timeout: 0 // 무제한 대기 (중단은 신호로만)
     });
     console.log(chalk.green(`Package removal completed: ${pkgList}`));
   } catch (e) {
-    console.error(chalk.red(`Package removal failed: ${e.message}`));
+    // 신호로 인한 중단인지 확인
+    if (e.signal === 'SIGTERM' || e.signal === 'SIGINT') {
+      console.log(chalk.yellow(`\n⚠️  Package removal interrupted by ${e.signal}`));
+      throw e; // 상위로 전파하여 graceful exit 처리
+    } else {
+      console.error(chalk.red(`Package removal failed: ${e.message}`));
+    }
   }
 }

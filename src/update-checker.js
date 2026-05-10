@@ -8,13 +8,10 @@ import process from 'process';
 import pMap from 'p-map';
 import pRetry from 'p-retry';
 import semver from 'semver';
+import { getCacheManager, initializeCache } from './enhanced-cache.js';
 
-// 세션 동안 유지되는 메모리 내 레지스트리 응답 캐시
-const registryCache = new Map();
-
-// 디스크 캐시 디렉토리
-const CACHE_DIR = path.join(os.tmpdir(), 'packmate-cache');
-const CACHE_DURATION = 3600000; // 1시간 (밀리초)
+// 기존 캐시 시스템을 Smart Cache Manager로 대체
+let cacheManager = null;
 
 const pkgPath = path.resolve(process.cwd(), 'package.json');
 const nodeModulesPath = path.resolve(process.cwd(), 'node_modules');
@@ -89,89 +86,78 @@ function getInstalledVersion(pkgName, lockJson, pkgJson) {
 }
 
 /**
- * 캐시 디렉토리 초기화
+ * Smart Cache Manager 초기화
  */
-function initCacheDir() {
-  if (!fs.existsSync(CACHE_DIR)) {
-    try {
-      fs.mkdirSync(CACHE_DIR, { recursive: true });
-    } catch (err) {
-      // 캐시 오류 무시
-    }
+async function initSmartCache() {
+  if (!cacheManager) {
+    cacheManager = getCacheManager();
+    await cacheManager.init();
   }
+  return cacheManager;
 }
 
 /**
- * 디스크에서 캐시된 패키지 버전 가져오기
+ * Smart Cache에서 패키지 버전 가져오기
  */
-function getCachedVersion(packageName) {
-  try {
-    const cacheFile = path.join(CACHE_DIR, `${packageName.replace('/', '_')}.json`);
-    if (!fs.existsSync(cacheFile)) return null;
-
-    const stats = fs.statSync(cacheFile);
-    const age = Date.now() - stats.mtimeMs;
-
-    // 캐시 만료됨
-    if (age > CACHE_DURATION) {
-      fs.unlinkSync(cacheFile);
-      return null;
-    }
-
-    const data = JSON.parse(fs.readFileSync(cacheFile, 'utf-8'));
-    return data.version;
-  } catch (err) {
-    return null;
+async function getCachedVersion(packageName) {
+  const cache = await initSmartCache();
+  const result = await cache.get(packageName);
+  
+  if (result.data) {
+    return result.data.version;
   }
+  return null;
 }
 
 /**
- * 디스크 캐시에 패키지 버전 저장
+ * Smart Cache에 패키지 버전 저장
  */
-function setCachedVersion(packageName, version) {
-  try {
-    const cacheFile = path.join(CACHE_DIR, `${packageName.replace('/', '_')}.json`);
-    fs.writeFileSync(cacheFile, JSON.stringify({ version, timestamp: Date.now() }));
-  } catch (err) {
-    // 캐시 오류 무시
-  }
+async function setCachedVersion(packageName, version) {
+  const cache = await initSmartCache();
+  await cache.set(packageName, { 
+    version, 
+    timestamp: Date.now(),
+    source: 'registry'
+  });
 }
 
 /**
- * 각 패키지의 최신 버전을 가져옵니다 (캐싱 개선)
+ * 각 패키지의 최신 버전을 가져옵니다 (Smart Caching)
  */
-export async function getLatestVersions(pkgs) {
-  initCacheDir();
+export async function getLatestVersions(pkgs, { showProgress = false } = {}) {
+  await initSmartCache();
 
   const total = pkgs.length;
 
   // 진행률 표시줄 인스턴스
-  const bar = new cliProgress.SingleBar({
-    format: 'Progress |{bar}| {value}/{total} ({percentage}%)',
-    barCompleteChar: '\u2588',
-    barIncompleteChar: '\u2591',
-    hideCursor: true,
-  });
-  bar.start(total, 0);
+  const bar = showProgress
+    ? new cliProgress.SingleBar({
+        format: 'Progress |{bar}| {value}/{total} ({percentage}%)',
+        barCompleteChar: '\u2588',
+        barIncompleteChar: '\u2591',
+        hideCursor: true,
+      })
+    : null;
+
+  if (bar) {
+    bar.start(total, 0);
+  }
 
   let completed = 0;
 
-  // 개별 패키지 최신 버전 조회 함수 (3단계 캐싱)
+  // 개별 패키지 최신 버전 조회 함수 (Smart Cache)
   async function getLatest(pkg) {
     try {
-      // 레벨 1: 메모리 캐시
-      if (registryCache.has(pkg)) {
-        return [pkg, registryCache.get(pkg)];
+      // Smart Cache Manager를 통한 3단계 캐싱
+      const cache = await initSmartCache();
+      const cacheResult = await cache.get(pkg);
+      
+      if (cacheResult.data) {
+        // Cache Hit (Memory 또는 Disk)
+        return [pkg, cacheResult.data.version];
       }
 
-      // 레벨 2: 디스크 캐시
-      const cached = getCachedVersion(pkg);
-      if (cached) {
-        registryCache.set(pkg, cached);
-        return [pkg, cached];
-      }
-
-      // 레벨 3: 레지스트리에서 가져오기
+      // Cache Miss - 레지스트리에서 가져오기
       const version = await pRetry(
         async () => {
           const data = await packageJson(pkg);
@@ -180,9 +166,12 @@ export async function getLatestVersions(pkgs) {
         { retries: 3, minTimeout: 1000 },
       );
 
-      // 결과 캐싱
-      registryCache.set(pkg, version);
-      setCachedVersion(pkg, version);
+      // Smart Cache에 저장
+      await cache.set(pkg, { 
+        version, 
+        timestamp: Date.now(),
+        source: 'registry'
+      });
 
       return [pkg, version];
     } catch (e) {
@@ -190,19 +179,23 @@ export async function getLatestVersions(pkgs) {
       return [pkg, null];
     } finally {
       completed += 1;
-      bar.update(completed);
+      if (bar) {
+        bar.update(completed);
+      }
     }
   }
 
   // CPU 코어 기반 동시성 최적화 (최대 16)
   const concurrency = Math.min(Math.max(os.cpus().length * 2, 8), 16);
   const results = await pMap(pkgs, getLatest, { concurrency });
-  bar.stop();
+  if (bar) {
+    bar.stop();
+  }
 
   return Object.fromEntries(results);
 }
 
-export async function getUpdateCandidates(packageManager = 'npm') {
+export async function getUpdateCandidates(packageManager = 'npm', options = {}) {
   const pkgJson = getPkgJson();
   const lockJson = getLockJson(packageManager);
 
@@ -211,7 +204,7 @@ export async function getUpdateCandidates(packageManager = 'npm') {
   const depNames = Object.keys(deps);
 
   // 최신 버전 한 번에 조회
-  const latests = await getLatestVersions(depNames);
+  const latests = await getLatestVersions(depNames, options);
 
   for (const pkgName of depNames) {
     const currentVersion = getInstalledVersion(pkgName, lockJson, pkgJson);

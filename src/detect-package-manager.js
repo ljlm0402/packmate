@@ -57,9 +57,7 @@ function getAvailablePackageManagers() {
   return available;
 }
 
-export function detectPackageManager() {
-  if (cachedPackageManager) return cachedPackageManager;
-
+export function getPackageManagerInfo() {
   const root = getProjectRoot();
 
   const lockFiles = {
@@ -68,8 +66,23 @@ export function detectPackageManager() {
     npm: findLockFileUpward(root, 'package-lock.json'),
   };
 
-  const found = Object.entries(lockFiles).filter(([, v]) => v);
+  const found = Object.entries(lockFiles)
+    .filter(([, v]) => v)
+    .map(([name, filePath]) => ({ name, filePath, available: isPackageManagerAvailable(name) }));
+
   const available = getAvailablePackageManagers();
+
+  return { found, available };
+}
+
+export function setDetectedPackageManager(packageManager) {
+  cachedPackageManager = packageManager;
+}
+
+export function detectPackageManager({ silent = false } = {}) {
+  if (cachedPackageManager) return cachedPackageManager;
+
+  const { found, available } = getPackageManagerInfo();
 
   // 사용 가능한 패키지 매니저가 전혀 없음
   if (available.length === 0) {
@@ -78,26 +91,28 @@ export function detectPackageManager() {
   }
 
   // 여러 락 파일 감지됨
-  if (found.length > 1) {
+  if (!silent && found.length > 1) {
     console.log(
       '\x1b[33m%s\x1b[0m',
-      `⚠️  Multiple lock files detected: ${found.map(([k]) => k).join(', ')}.`,
+      `⚠️  Multiple lock files detected: ${found.map((item) => item.name).join(', ')}.`,
     );
   }
 
   // 락 파일 없음 - 첫 번째 사용 가능한 패키지 매니저 사용
   if (found.length === 0) {
-    console.log('\x1b[33m%s\x1b[0m', `⚠️  No lock file detected. Using: ${available[0]}`);
+    if (!silent) {
+      console.log('\x1b[33m%s\x1b[0m', `⚠️  No lock file detected. Using: ${available[0]}`);
+    }
     cachedPackageManager = available[0];
     return cachedPackageManager;
   }
 
   // 감지된 패키지 매니저가 실제로 사용 가능한지 확인
-  const detectedPm = found[0][0];
+  const detectedPm = found[0].name;
 
   if (isPackageManagerAvailable(detectedPm)) {
     // 완벽한 매칭 - 락 파일이 존재하고 패키지 매니저가 설치됨
-    if (found.length > 1) {
+    if (!silent && found.length > 1) {
       console.log('\x1b[32m%s\x1b[0m', `✓ Using: ${detectedPm}`);
     }
     cachedPackageManager = detectedPm;

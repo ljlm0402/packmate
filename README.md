@@ -7,7 +7,7 @@
   <br>
 </h1>
 
-<h4 align="center">🤖 Your smart and friendly CLI assistant for dependency updates and cleanup</h4>
+<h4 align="center">🤖 Your smart and friendly interactive CLI assistant for dependency updates, security advisories, and cleanup</h4>
 
 <p align ="center">
     <a href="https://nodei.co/npm/packmate" target="_blank">
@@ -58,8 +58,8 @@ It supports **npm**, **pnpm**, and **yarn**. With an intuitive interactive UI an
 
 ## 🤖 Why Packmate?
 
-- **⚡ Performance**: 6x faster with 3-level caching system (memory + disk + network)
-- **🎯 Accuracy**: 90%+ unused package detection with dev tool intelligence
+- **⚡ Performance**: Faster repeat runs with caching and parallel analysis
+- **🎯 Accuracy**: Unused package detection with dev tool intelligence and cross-validation
 - **🛡️ Safety**: Smart fallback for package managers, unused packages excluded from updates
 - **🎨 Clarity**: Grouped UI sessions (Patch/Minor/Major) with color-coded updates
 - **🔧 Flexibility**: Full configuration support via `packmate.config.json`
@@ -70,19 +70,29 @@ It supports **npm**, **pnpm**, and **yarn**. With an intuitive interactive UI an
 ### Performance & Optimization
 - **3-Level Caching System**: Memory → Disk (1hr TTL) → Network
   - First run: Standard speed
-  - Second run: **6x faster** with cached registry data
-- **Parallel Processing**: Multi-core CPU utilization for file scanning (**2-4x faster**)
+  - Second run: Faster with cached registry data
+- **Worker Pool Processing**: Multi-core CPU utilization for file scanning (**2-4x faster**)
+- **Compressed Caching**: Experimental Brotli-based cache storage
+- **Predictive Caching**: Experimental package prediction and pre-loading
 - **Adaptive Concurrency**: Dynamic request throttling based on CPU cores (8-16 concurrent)
 
+### Security Awareness
+- **Security Advisories**:
+  - npm audit based advisory detection
+  - Direct/transitive advisory distinction
+  - Security update candidates in the interactive flow
+  - Transitive advisories explained without misleading direct selection
+
 ### Smart Detection
-- **Enhanced Unused Detection** (90%+ accuracy):
+- **Enhanced Unused Detection**:
   - Dynamic import detection: `import('module')`
   - Conditional require detection: `try-catch`, `if` blocks
   - DevDependencies intelligence: Recognizes build tools, linters, type definitions
   - Cross-validation: precinct + depcheck for high confidence
 - **Update Detection**:
   - Grouped by Patch/Minor/Major with color coding
-  - Unused packages automatically excluded from update suggestions
+  - Unused packages are reviewed before update selection
+  - Direct security advisories can be surfaced in the update flow
   - Semver-aware version comparison
 - **Installation Detection**: Finds declared but not installed packages
 
@@ -93,15 +103,15 @@ It supports **npm**, **pnpm**, and **yarn**. With an intuitive interactive UI an
   - 🔶 **Major Updates** (Red): Breaking changes, requires review
   - 🗑️ **Unused Packages**: High/Medium confidence levels
   - 📥 **Not Installed**: Missing declared dependencies
-  - ✅ **Up-to-date**: Informational list (non-selectable)
+  - 🛡️ **Security Advisories**: Direct/transitive advisory distinction
 - **Safety Features**:
   - Confirmation prompt for major updates
   - Breaking change warnings
   - Clear action summaries
 - **Visual Enhancements**:
   - Color-coded version changes
-  - Progress bars for long operations
-  - Fixed console box alignment
+  - Progressive feedback during analysis
+  - Compact summary and final action review
 
 ### Configuration & Flexibility
 - **Smart Package Manager Detection**:
@@ -132,71 +142,73 @@ npx packmate
 
 ## 📝 Usage
 
+### Basic Usage
 From your project root, just run:
 
 ```sh
 packmate
 ```
 
+### Command Line Options
+
+```sh
+packmate
+```
+
+Packmate is intentionally interactive. Run it from your project directory and choose updates, removals, and security actions from the guided prompts.
+
 **Typical Workflow Example:**
 
 ```sh
 ┌  📦 Packmate: Dependency Updates & Cleanup
 │
-◇  Info ─────────────────╮
-│  Package Manager: npm  │
-├────────────────────────╯
-│
-Progress |████████████████████████████████████████| 17/17 (100%)
-◇  ✅ Found 3 packages with available updates
-◇  ✅ Unused package analysis complete
-◇  ✅ Found 0 not installed packages
+◇  Multiple lock files found. Which package manager should PackMate use?
+│  pnpm
 
-📊 Analysis Results:
-   Updates available: 3
-   Unused:            1
-   Not installed:     0
-   Up-to-date:        13
+Analysis Summary
+  Category   Count         Details
+  Updates    7             Available package updates
+  Unused     1             Possible cleanup candidates
+  Missing    0             Declared but not installed
+  Current    9             Already up-to-date
+  Security   2 advisories  1 direct, 1 transitive
+
+🗑️  Unused Packages (High Confidence: 1)
+   Likely safe to remove
+│
+◇  Select packages to remove:
+│  none
+
+Security Risk: High (1)
+   Update recommended
+│
+◇  Select security updates:
+│  lodash  2 advisories
 
 🔶 Major Updates (3)
    ⚠️  Breaking changes possible - Review carefully
 │
 ◇  Select major updates (caution required):
-│  ◼ globby  13.2.2 → 15.0.0  [MAJOR]
-│  ◻ p-retry  6.2.1 → 7.1.0  [MAJOR]
-│  ◻ precinct  10.0.1 → 12.2.0  [MAJOR]
-│
-⚠️  Proceed with 1 major update(s)? Breaking changes may be included.
-│  Yes
-│
-🗑️  Unused Packages (High Confidence: 1)
-   Safe to remove
-│
-◇  Select packages to remove:
 │  none
+
+Review Actions
+  Security updates (1)
+    - lodash (high)
+  Updates (2)
+    - fs-extra → 11.3.5
+    - js-yaml → 4.1.1
 │
-◇  Show already up-to-date packages (13)?
+◇  Proceed with 3 action(s)?
 │  No
 │
-◇  Actions ───────────────────╮
-│  📝 Actions to execute:     │
-│    - update: globby@15.0.0  │
-├─────────────────────────────╯
-│
-> npm install globby@15.0.0
-✔️  Package update completed: globby@15.0.0
-
-✅ Complete:
-   Updated:   1
-   Removed:   0
-   Installed: 0
+No changes were made.
 │
 └  Packmate complete! 🎉
 ```
 
 ## ⚙️ Requirements
 
-- Node.js v16 or later (recommended v18+)
+- Node.js v18 or later
 - Supports npm, yarn, and pnpm
 - Works on Mac, Linux, and Windows
 
