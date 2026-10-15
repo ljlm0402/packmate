@@ -49,17 +49,17 @@ try {
     'LICENSE',
     'README.md',
     'README.ko.md',
-    'CHANGELOG.md',
     'package.json',
     'packmate.config.example.json',
     manifest.main,
     ...Object.values(manifest.bin),
+    ...manifest.files.filter((file) => !file.endsWith('/')),
   ]) {
     assert.ok(files.has(required), `Required package file missing: ${required}`);
   }
   for (const file of files) {
     assert.ok(
-      /^(?:src\/[^/]+\.js|bin\/packmate\.js|LICENSE|README(?:\.ko)?\.md|CHANGELOG\.md|package\.json|packmate\.config\.example\.json)$/.test(
+      /^(?:src\/[^/]+\.js|bin\/packmate\.js|LICENSE|README(?:\.ko)?\.md|package\.json|packmate\.config\.example\.json)$/.test(
         file,
       ),
       `Unexpected package file: ${file}`,

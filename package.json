@@ -69,7 +69,6 @@
   "files": [
     "bin/",
     "src/",
-    "packmate.config.example.json",
-    "CHANGELOG.md"
+    "packmate.config.example.json"
   ]
 }
