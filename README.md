@@ -89,7 +89,7 @@ It supports **npm**, **pnpm**, and **yarn**. With an intuitive interactive UI an
   - Dynamic import detection: `import('module')`
   - Conditional require detection: `try-catch`, `if` blocks
   - DevDependencies intelligence: Recognizes build tools, linters, type definitions
-  - Cross-validation: precinct + depcheck for high confidence
+  - Cross-validation: TypeScript AST analysis plus import scanning and configuration references
 - **Update Detection**:
   - Grouped by Patch/Minor/Major with color coding
   - Unused packages are reviewed before update selection
@@ -418,7 +418,7 @@ npm run check:package
 npm run prepublishOnly
 ```
 
-The last command runs tests, lint, package checks, and `npm audit --omit=dev --audit-level=high`; it does not publish. Unresolved high-severity findings block publication; the last security check recorded outstanding advisories. The release workflow also requires its Git tag to match `package.json`.
+The last command runs tests, lint, package checks, and `npm audit --omit=dev --audit-level=high`; it does not publish. Unresolved high-severity findings block publication; after replacing vulnerable analysis dependencies, both runtime and full dependency audits returned zero findings. The release workflow also requires its Git tag to match `package.json`.
 
 See the [development notes](https://github.com/ljlm0402/packmate/blob/master/docs/DEVELOPMENT.ko.md), and the [release check](https://github.com/ljlm0402/packmate/blob/master/docs/RELEASE_CHECK_2.3.0.ko.md) for implementation details and validation scope.
 

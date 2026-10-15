@@ -1,10 +1,14 @@
-import fs from 'fs-extra';
-import { globby } from 'globby';
+import fs from 'node:fs/promises';
 import os from 'os';
 import path from 'path';
-import precinct from 'precinct';
 import process from 'process';
 import pMap from 'p-map';
+import {
+  normalizePackageName,
+  sourceFiles,
+  readSource,
+  parseReferences,
+} from './source-analysis.js';
 import { loadConfig, shouldIgnorePackage } from './config-loader.js';
 
 function getCustomIgnoreList(pkgJson) {
@@ -12,74 +16,12 @@ function getCustomIgnoreList(pkgJson) {
   return pkgJson?.packmate?.ignoreUnused || [];
 }
 
-/**
- * 동적 import 패턴 감지
- * import('module-name'), require(variable) 등
- */
-function detectDynamicImports(content) {
-  const dynamicImports = new Set();
-
-  // import('module-name') 패턴
-  const importRegex = /import\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g;
-  let match;
-  while ((match = importRegex.exec(content)) !== null) {
-    dynamicImports.add(match[1]);
-  }
-
-  // require 변수 패턴에서 문자열 리터럴 추출 시도
-  const requireVarRegex = /require\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g;
-  while ((match = requireVarRegex.exec(content)) !== null) {
-    dynamicImports.add(match[1]);
-  }
-
-  return Array.from(dynamicImports);
-}
-
-/**
- * 조건부 require 감지
- * if/try-catch 안의 require 등
- */
-function detectConditionalRequires(content) {
-  const conditionalRequires = new Set();
-
-  // try-catch 블록 내 require
-  const tryRegex = /try\s*{[\s\S]*?require\s*\(\s*['"`]([^'"`]+)['"`]\s*\)[\s\S]*?}\s*catch/g;
-  let match;
-  while ((match = tryRegex.exec(content)) !== null) {
-    conditionalRequires.add(match[1]);
-  }
-
-  // if 문 안의 require (단순 패턴)
-  const ifRegex = /if\s*\([^)]*\)\s*{[\s\S]*?require\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g;
-  while ((match = ifRegex.exec(content)) !== null) {
-    conditionalRequires.add(match[1]);
-  }
-
-  return Array.from(conditionalRequires);
-}
-
-/**
- * 패키지명 정규화 (스코프 패키지 처리)
- */
-function normalizePackageName(dep) {
-  if (!dep || dep.startsWith('.') || path.isAbsolute(dep)) return null;
-
-  // @scope/package/subpath → @scope/package
-  if (dep.startsWith('@') && dep.includes('/')) {
-    const parts = dep.split('/');
-    return parts.slice(0, 2).join('/');
-  }
-
-  // package/subpath → package
-  return dep.split('/')[0];
-}
-
 export async function runUnusedCheck({
   withUsedList = false,
   root = process.cwd(),
   config = loadConfig({ root }),
 } = {}) {
-  const pkgJson = await fs.readJSON(path.join(root, 'package.json'));
+  const pkgJson = JSON.parse(await fs.readFile(path.join(root, 'package.json'), 'utf8'));
   const evidence = Object.create(null);
   const parseErrors = [];
   const record = (name, file, kind) => {
@@ -98,88 +40,32 @@ export async function runUnusedCheck({
   const dynamicUsed = new Set(); // 동적 import로 사용된 것들
   const conditionalUsed = new Set(); // 조건부 require로 사용된 것들
 
-  const extToType = {
-    '.js': 'es6',
-    '.jsx': 'es6',
-    '.ts': 'ts',
-    '.tsx': 'tsx',
-    '.mjs': 'es6',
-    '.cjs': 'commonjs',
-  };
-
-  const ignorePaths = config.detection?.ignorePaths || [];
-  const files = await globby(
-    [
-      '**/*.{js,ts,jsx,tsx,mjs,cjs}',
-      '!**/node_modules/**',
-      '!**/.git/**',
-      '!**/.packmate/**',
-      ...ignorePaths.map((pattern) => `!${pattern}`),
-    ],
-    { cwd: root },
-  );
-
-  // 성능 향상을 위해 파일을 병렬로 처리
-  const concurrency = Math.max(os.cpus().length, 4);
-
+  const { files, unsupported } = await sourceFiles(root, config);
+  for (const file of unsupported)
+    parseErrors.push({ file, error: 'Unsupported source format; removal suggestions suppressed' });
+  const concurrency = Math.min(Math.max(os.cpus().length, 4), 16);
   const processFile = async (file) => {
-    const ext = path.extname(file);
-    const type = extToType[ext] || 'es6';
-    let content;
-    try {
-      content = await fs.readFile(path.join(root, file), 'utf8');
-    } catch (error) {
-      parseErrors.push({ file, error: error.message });
-      return { fileDeps: new Set(), fileDynamicImports: new Set(), fileConditionalReqs: new Set() };
-    }
-
     const fileDeps = new Set();
     const fileDynamicImports = new Set();
     const fileConditionalReqs = new Set();
-
-    // 1. Precinct를 통한 정적 분석
     try {
-      const deps = precinct(content, { type });
-      deps.forEach((dep) => {
-        const pkgName = normalizePackageName(dep);
-        if (pkgName) {
-          fileDeps.add(pkgName);
-          record(pkgName, file, 'static-import');
-        }
-      });
-    } catch (e) {
-      parseErrors.push({ file, error: e.message });
-      if (config.ui?.verbose) {
-        console.warn(`precinct parse failed in "${file}": ${e.message}`);
+      const { references, unresolved } = parseReferences(
+        await readSource(root, file),
+        file,
+        config,
+      );
+      unresolved.forEach((error) => parseErrors.push({ file, error }));
+      for (const reference of references) {
+        const name = normalizePackageName(reference.specifier);
+        if (!name) continue;
+        fileDeps.add(name);
+        record(name, file, reference.kind);
+        if (reference.kind === 'dynamic-import') fileDynamicImports.add(name);
+        if (reference.kind === 'conditional-require') fileConditionalReqs.add(name);
       }
+    } catch (error) {
+      parseErrors.push({ file, error: error.message });
     }
-
-    // 2. 동적 import 감지
-    if (config.detection?.dynamicImport) {
-      const dynamicImports = detectDynamicImports(content);
-      dynamicImports.forEach((dep) => {
-        const pkgName = normalizePackageName(dep);
-        if (pkgName) {
-          fileDeps.add(pkgName);
-          fileDynamicImports.add(pkgName);
-          record(pkgName, file, 'dynamic-import-or-require');
-        }
-      });
-    }
-
-    // 3. 조건부 require 감지
-    if (config.detection?.conditionalRequire) {
-      const conditionalReqs = detectConditionalRequires(content);
-      conditionalReqs.forEach((dep) => {
-        const pkgName = normalizePackageName(dep);
-        if (pkgName) {
-          fileDeps.add(pkgName);
-          fileConditionalReqs.add(pkgName);
-          record(pkgName, file, 'conditional-require');
-        }
-      });
-    }
-
     return { fileDeps, fileDynamicImports, fileConditionalReqs };
   };
 
