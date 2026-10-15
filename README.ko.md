@@ -81,7 +81,7 @@ Packmate는 Node.js 프로젝트 의존성을 관리, 업데이트 및 정리하
   - 동적 import 탐지: `import('module')`
   - 조건부 require 탐지: `try-catch`, `if` 블록
   - DevDependencies 인텔리전스: 빌드 도구, 린터, 타입 정의 인식
-  - 교차 검증: precinct + depcheck로 높은 신뢰도
+  - 교차 검증: TypeScript AST 분석 + import 스캐너·설정 참조 확인
 - **업데이트 탐지**:
   - Patch/Minor/Major별 그룹화 및 색상 코딩
   - 미사용 패키지를 업데이트보다 먼저 판단
@@ -408,7 +408,7 @@ npm run check:package
 npm run prepublishOnly
 ```
 
-마지막 명령은 테스트·린트·패키지 검사와 `npm audit --omit=dev --audit-level=high`를 실행하며 배포하지 않습니다. 미해결 high 이상 권고가 있으면 배포를 중단하며, 마지막 보안 점검에는 미해결 권고가 남아 있습니다. 릴리스 workflow는 Git tag와 `package.json`의 버전 일치도 검사합니다.
+마지막 명령은 테스트·린트·패키지 검사와 `npm audit --omit=dev --audit-level=high`를 실행하며 배포하지 않습니다. 미해결 high 이상 권고가 있으면 배포를 중단하며, 취약한 분석 의존성을 교체한 뒤 운영·전체 의존성 audit에서 0건을 확인했습니다. 릴리스 workflow는 Git tag와 `package.json`의 버전 일치도 검사합니다.
 
 구현 및 검증 범위는 [개발 결과](https://github.com/ljlm0402/packmate/blob/master/docs/DEVELOPMENT.ko.md), [배포 점검](https://github.com/ljlm0402/packmate/blob/master/docs/RELEASE_CHECK_2.3.0.ko.md)을 참고하세요.
 

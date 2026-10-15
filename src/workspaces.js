@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { globby } from 'globby';
+import { glob } from 'tinyglobby';
 import yaml from 'js-yaml';
 import semver from 'semver';
 import { declaredDependencies, readManifest } from './dependency-resolver.js';
@@ -25,7 +25,7 @@ export async function discoverProjects(root, { workspaces = false } = {}) {
   ) {
     throw new Error('Workspace patterns must be relative paths within the project');
   }
-  const directories = await globby(patterns, {
+  const directories = await glob(patterns, {
     cwd: root,
     onlyDirectories: true,
     expandDirectories: false,
@@ -39,7 +39,7 @@ export async function discoverProjects(root, { workspaces = false } = {}) {
     if (fs.existsSync(path.join(directory, 'package.json')))
       projects.push({
         root: directory,
-        relativePath: relative.split(path.sep).join('/'),
+        relativePath: path.relative(root, directory).split(path.sep).join('/'),
         manifest: readManifest(directory),
       });
   }

@@ -1,4 +1,4 @@
-import depcheck from 'depcheck';
+import { checkReferences } from './reference-checker.js';
 import path from 'node:path';
 import { runUnusedCheck } from './unused-checker.js';
 import { declaredDependencies } from './dependency-resolver.js';
@@ -7,7 +7,7 @@ export async function analyzeUsage(
   root,
   manifest,
   config,
-  { scan = runUnusedCheck, crossCheck = depcheck } = {},
+  { scan = runUnusedCheck, crossCheck = checkReferences } = {},
 ) {
   const primary = await scan({ root, config, withUsedList: true });
   let secondary;
@@ -15,6 +15,7 @@ export async function analyzeUsage(
   try {
     secondary = await crossCheck(root, {
       package: manifest,
+      config,
       ignorePatterns: config.detection?.ignorePaths || [],
       ignoreDirs: ['node_modules', '.git', '.packmate', 'dist', 'build', 'coverage'],
     });
@@ -39,7 +40,7 @@ export async function analyzeUsage(
       ...(primary.evidence[name] || []),
       ...(secondary.using?.[name] || []).map((file) => ({
         file: path.relative(root, file),
-        kind: 'depcheck-reference',
+        kind: 'lexical-or-config-reference',
       })),
     ];
     const base = { name, section, files, reasons: [], confidence: null };
@@ -60,8 +61,8 @@ export async function analyzeUsage(
       confidence,
       reasons: [
         both
-          ? 'No reference found by precinct and depcheck'
-          : 'No reference found by precinct; depcheck did not confirm',
+          ? 'No reference found by AST and lexical/config checks'
+          : 'No reference found by AST; lexical/config check did not confirm',
         ...(!hasSource
           ? ['No analyzable source files; usage cannot be determined from package.json alone']
           : []),

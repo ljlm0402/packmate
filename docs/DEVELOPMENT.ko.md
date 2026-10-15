@@ -44,7 +44,7 @@ CI 정책은 0=확인된 문제 없음, 1=업데이트·취약성·미설치 패
 
 ## 3. 근거 표시
 
-사용 분석은 파일별 static/dynamic/conditional reference, depcheck reference, ignore/dev-tool 제외 이유, 스캔 파일 수, 파싱 오류를 반환한다. 기본 제외 경로(node_modules/.git/.packmate)는 사용자 설정으로 빠져도 강제 유지한다. 두 분석기 모두 미사용으로 보아야 high이며, 단일 분석기 결과는 medium이다. conservative 모드에서는 단일 결과를 후보로 올리지 않는다. 파싱 또는 교차 검사 실패가 있으면 low/uncertain으로 내려 제거 세션에서 제외한다. 계산된 import나 framework convention까지 사용하지 않음을 증명하는 기능은 아니다.
+사용 분석은 파일별 static/dynamic/conditional reference, lexical/config reference, ignore/dev-tool 제외 이유, 스캔 파일 수, 파싱 오류를 반환한다. 기본 제외 경로(node_modules/.git/.packmate)는 사용자 설정으로 빠져도 강제 유지한다. AST와 import lexical/config 검사 모두 참조를 찾지 못해야 high이며, 단일 분석기 결과는 medium이다. conservative 모드에서는 단일 결과를 후보로 올리지 않는다. 파싱 또는 교차 검사 실패가 있으면 low/uncertain으로 내려 제거 세션에서 제외한다. 계산된 import나 framework convention까지 사용하지 않음을 증명하는 기능은 아니다.
 
 ## 4. 최소 변경 보안 계획
 
@@ -84,3 +84,5 @@ workspace는 npm/Yarn의 workspaces 배열·packages 객체와 pnpm-workspace.ya
 - 실제 의존성 설치·제거·업데이트, live registry/audit 결과, Windows shim, 원격 CI는 검증하지 않았다. 실행 테스트는 일회용 fixture와 주입한 패키지 매니저 결과를 사용했다.
 
 최신 배포 전 실측 검증과 보안 차단 사유는 [2.3.0 최종 점검](RELEASE_CHECK_2.3.0.ko.md)을 참고하세요. 소스가 없는 입력은 manifest-only/partial로 분류하고 제거 후보를 표시하지 않습니다.
+
+보안 의존성 교체 후의 최신 검증은 [audit 실패 해결](SECURITY_REMEDIATION.ko.md)을 참고하세요. 기존의 precinct·depcheck·globby 경로를 TypeScript AST/lexical 분석과 tinyglobby로 교체했으며, 테스트 33개와 전체 prepublish 검증을 통과했습니다.
