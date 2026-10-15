@@ -1,6 +1,6 @@
 {
   "name": "packmate",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "description": "Your smart and friendly interactive assistant for dependency updates, security advisories, and cleanup.",
   "author": "AGUMON <ljlm0402@gmail.com>",
   "license": "MIT",
