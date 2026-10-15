@@ -223,7 +223,6 @@ export async function unusedSession(unusedPackages, config) {
 
     const highConfidence = unusedPackages.filter((p) => p.confidence === 'high');
     const mediumConfidence = unusedPackages.filter((p) => p.confidence === 'medium');
-    const lowConfidence = unusedPackages.filter((p) => p.confidence === 'low');
 
     const selected = [];
 
@@ -235,6 +234,7 @@ export async function unusedSession(unusedPackages, config) {
         const highChoices = highConfidence.map((pkg) => ({
             label: `${chalk.red(pkg.name)}  ${chalk.gray(pkg.current)}`,
             value: pkg.name,
+            hint: pkg.hint,
         }));
 
         const highSelected = await multiselect({

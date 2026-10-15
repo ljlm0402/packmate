@@ -71,23 +71,13 @@ const DEFAULT_CONFIG = {
 /**
  * 설정 파일을 로드합니다
  */
-export function loadConfig() {
-    const configPath = path.resolve(process.cwd(), 'packmate.config.json');
-    const pkgJsonPath = path.resolve(process.cwd(), 'package.json');
+export function loadConfig({ root = process.cwd(), strict = false } = {}) {
+    const configPath = path.resolve(root, 'packmate.config.json');
+    const pkgJsonPath = path.resolve(root, 'package.json');
 
     let config = { ...DEFAULT_CONFIG };
 
-    // 1. packmate.config.json 우선
-    if (fs.existsSync(configPath)) {
-        try {
-            const fileConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-            config = mergeConfig(config, fileConfig);
-        } catch (e) {
-            console.warn(`⚠️  packmate.config.json 파싱 실패: ${e.message}`);
-        }
-    }
-
-    // 2. package.json의 packmate 필드
+    // package.json defaults, overridden by the dedicated config file
     if (fs.existsSync(pkgJsonPath)) {
         try {
             const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8'));
@@ -95,7 +85,19 @@ export function loadConfig() {
                 config = mergeConfig(config, pkgJson.packmate);
             }
         } catch (e) {
+            if (strict) throw new Error(`Invalid package.json: ${e.message}`);
             console.warn(`⚠️  package.json 파싱 실패: ${e.message}`);
+        }
+    }
+
+    // Dedicated project config takes precedence
+    if (fs.existsSync(configPath)) {
+        try {
+            const fileConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+            config = mergeConfig(config, fileConfig);
+        } catch (e) {
+            if (strict) throw new Error(`Invalid packmate.config.json: ${e.message}`);
+            console.warn(`⚠️  packmate.config.json 파싱 실패: ${e.message}`);
         }
     }
 
@@ -112,8 +114,8 @@ export function saveProjectConfig(partialConfig) {
     if (fs.existsSync(configPath)) {
         try {
             currentConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-        } catch {
-            currentConfig = {};
+        } catch (error) {
+            throw new Error(`Cannot overwrite invalid packmate.config.json: ${error.message}`);
         }
     }
 
@@ -126,9 +128,13 @@ export function saveProjectConfig(partialConfig) {
  * 두 설정 객체를 깊게 병합합니다
  */
 function mergeConfig(base, override) {
+    if (!override || typeof override !== 'object' || Array.isArray(override)) {
+        throw new TypeError('Configuration must be an object');
+    }
     const result = { ...base };
 
-    for (const key in override) {
+    for (const key of Object.keys(override)) {
+        if (['__proto__', 'constructor', 'prototype'].includes(key)) continue;
         if (override[key] !== undefined) {
             if (
                 typeof override[key] === 'object' &&
@@ -153,7 +159,7 @@ export function shouldIgnorePackage(packageName, config) {
 
     for (const pattern of patterns) {
         // 간단한 glob 패턴 지원 (* wildcard)
-        const regex = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$');
+        const regex = new RegExp('^' + pattern.split('*').map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$');
         if (regex.test(packageName)) {
             return true;
         }

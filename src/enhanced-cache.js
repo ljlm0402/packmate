@@ -265,9 +265,9 @@ export class SmartCacheManager {
 
         // 1단계: Memory 캐시 확인
         const memoryResult = this.memoryCache.get(packageName);
-        if (memoryResult) {
+        if (memoryResult && Date.now() - memoryResult.createdAt <= ttl) {
             this.stats.memoryHits++;
-            return { data: memoryResult, source: 'memory' };
+            return { data: memoryResult.data, source: 'memory' };
         }
 
         // 2단계: Disk 캐시 확인
@@ -275,7 +275,7 @@ export class SmartCacheManager {
         if (diskResult) {
             this.stats.diskHits++;
             // Memory 캐시에 저장
-            this.memoryCache.set(packageName, diskResult);
+            this.memoryCache.set(packageName, { data: diskResult, createdAt: this.diskCache.index[packageName].createdAt });
             return { data: diskResult, source: 'disk' };
         }
 
@@ -286,7 +286,7 @@ export class SmartCacheManager {
 
     async set(packageName, versionData) {
         // Memory와 Disk 양쪽에 저장
-        this.memoryCache.set(packageName, versionData);
+        this.memoryCache.set(packageName, { data: versionData, createdAt: Date.now() });
         await this.diskCache.set(packageName, versionData);
     }
 
@@ -331,9 +331,11 @@ export class SmartCacheManager {
 // 기본 인스턴스 (싱글톤 패턴)
 let globalCacheManager = null;
 
-export function getCacheManager() {
+export function getExistingCacheManager() { return globalCacheManager; }
+
+export function getCacheManager(options = {}) {
     if (!globalCacheManager) {
-        globalCacheManager = new SmartCacheManager();
+        globalCacheManager = new SmartCacheManager(options);
     }
     return globalCacheManager;
 }

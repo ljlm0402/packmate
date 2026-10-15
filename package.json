@@ -1,6 +1,6 @@
 {
   "name": "packmate",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Your smart and friendly interactive assistant for dependency updates, security advisories, and cleanup.",
   "author": "AGUMON <ljlm0402@gmail.com>",
   "license": "MIT",
@@ -28,7 +28,10 @@
   "scripts": {
     "start": "node bin/packmate.js",
     "format": "prettier --write .",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "node --test",
+    "check:package": "node scripts/check-package.js",
+    "prepublishOnly": "npm test && npm run lint && npm run check:package && npm audit --omit=dev --audit-level=high"
   },
   "dependencies": {
     "@clack/prompts": "^0.11.0",
@@ -62,5 +65,11 @@
   "bugs": {
     "url": "https://github.com/ljlm0402/packmate/issues"
   },
-  "homepage": "https://github.com/ljlm0402/packmate#readme"
+  "homepage": "https://github.com/ljlm0402/packmate#readme",
+  "files": [
+    "bin/",
+    "src/",
+    "packmate.config.example.json",
+    "CHANGELOG.md"
+  ]
 }

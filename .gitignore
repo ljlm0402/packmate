@@ -137,3 +137,6 @@ dist
 
 # vscode
 .vscode/
+
+# Packmate local recovery checkpoints
+.packmate/

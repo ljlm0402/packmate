@@ -4,7 +4,7 @@ import process from 'process';
 // 프로세스 추적을 위한 콜백 함수들
 let processTracker = {
   onStart: null,
-  onEnd: null
+  onEnd: null,
 };
 
 /**
@@ -14,23 +14,48 @@ export function setProcessTracker(tracker) {
   processTracker = tracker;
 }
 
+export function trackProcessStart(child) {
+  processTracker.onStart?.(child);
+}
+export function trackProcessEnd(child) {
+  processTracker.onEnd?.(child);
+}
+
 export async function runWithWarningCapture(cmd, args = [], options = {}) {
   return new Promise((resolve) => {
     // Windows에서 shell을 통해 명령어 실행 필요
-    const isWindows = process.platform === 'win32';
-    const child = spawn(cmd, args, { 
-      stdio: ['inherit', 'pipe', 'pipe'], 
+    const isWindows =
+      process.platform === 'win32' &&
+      options.shell !== false &&
+      !cmd.toLowerCase().endsWith('.exe');
+    // cmd.exe expands percent/exclamation syntax even inside quotes.
+    // Reject it before invoking Windows package-manager shims.
+    if (
+      isWindows &&
+      (!/^[a-zA-Z0-9_.-]+$/.test(cmd) || args.some((arg) => /["%!\r\n]/.test(arg)))
+    ) {
+      resolve({ code: 1, warnings: [], error: 'Unsafe Windows command arguments' });
+      return;
+    }
+    const child = spawn(cmd, isWindows ? args.map((arg) => `"${arg}"`) : args, {
+      stdio: ['inherit', 'pipe', 'pipe'],
       shell: isWindows,
-      ...options 
+      ...options,
     });
 
     // 프로세스 추적 시작
-    if (processTracker.onStart) {
-      processTracker.onStart(child);
+    trackProcessStart(child);
+
+    const warnings = [];
+    let spawnError;
+    const pending = { stdout: '', stderr: '' };
+    function streamOutput(stream, data, output) {
+      output.write(data);
+      const lines = (pending[stream] + data.toString()).split(/\r?\n/);
+      pending[stream] = lines.pop();
+      lines.forEach(capture);
     }
 
-    let warnings = [];
-    
     function capture(line) {
       if (
         /WARNING|not supported|deprecated|unsupported|not officially supported|obsolete/i.test(line)
@@ -38,32 +63,14 @@ export async function runWithWarningCapture(cmd, args = [], options = {}) {
         warnings.push(line.trim());
       }
     }
-    
-    child.stdout.on('data', (data) => {
-      data
-        .toString()
-        .split('\n')
-        .forEach((line) => {
-          capture(line);
-          process.stdout.write(line + '\n');
-        });
-    });
-    
-    child.stderr.on('data', (data) => {
-      data
-        .toString()
-        .split('\n')
-        .forEach((line) => {
-          capture(line);
-          process.stderr.write(line + '\n');
-        });
-    });
-    
-    child.on('exit', (code, signal) => {
+
+    child.stdout.on('data', (data) => streamOutput('stdout', data, process.stdout));
+    child.stderr.on('data', (data) => streamOutput('stderr', data, process.stderr));
+
+    child.on('close', (code, signal) => {
+      Object.values(pending).filter(Boolean).forEach(capture);
       // 프로세스 추적 종료
-      if (processTracker.onEnd) {
-        processTracker.onEnd(child);
-      }
+      trackProcessEnd(child);
 
       // 신호로 종료된 경우 (Ctrl+C 등)
       if (signal) {
@@ -71,17 +78,16 @@ export async function runWithWarningCapture(cmd, args = [], options = {}) {
         return;
       }
 
-      resolve({ code: code || 0, warnings });
+      resolve({
+        code: spawnError ? 1 : (code ?? 1),
+        warnings,
+        ...(spawnError ? { error: spawnError.message } : {}),
+      });
     });
 
     // 프로세스 에러 처리
     child.on('error', (error) => {
-      if (processTracker.onEnd) {
-        processTracker.onEnd(child);
-      }
-      
-      console.error(`Process error: ${error.message}`);
-      resolve({ code: 1, warnings, error: error.message });
+      spawnError = error;
     });
   });
 }
