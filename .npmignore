@@ -6,3 +6,8 @@ eslint.config.js
 .prettierignore
 pnpm-lock.yaml
 *.log
+.packmate/
+test/
+docs/
+packmate.config.json
+example/

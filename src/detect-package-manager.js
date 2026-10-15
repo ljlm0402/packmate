@@ -36,7 +36,7 @@ function isPackageManagerAvailable(pm) {
     };
     execSync(`${pm} --version`, options);
     return true;
-  } catch (error) {
+  } catch {
     return false;
   }
 }

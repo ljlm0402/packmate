@@ -12,23 +12,20 @@
 
 import { intro, outro, note, select, isCancel, cancel, confirm, spinner } from '@clack/prompts';
 import chalk from 'chalk';
-import depcheck from 'depcheck';
-import fs from 'fs';
-import { createRequire } from 'module';
 import path from 'path';
 import process from 'process';
-import { getUpdateCandidates } from '../src/update-checker.js';
-import { runUnusedCheck } from '../src/unused-checker.js';
+import { analyzeProject } from '../src/report.js';
+import { runCliMode } from '../src/cli-modes.js';
+import { snapshotProject, createPlan } from '../src/checkpoints.js';
+import { applyPlan } from '../src/apply-plan.js';
 import {
   detectPackageManager,
   getPackageManagerInfo,
   setDetectedPackageManager,
 } from '../src/detect-package-manager.js';
-import { installPackages, uninstallPackages } from '../src/install-helper.js';
-import { runWithWarningCapture, setProcessTracker } from '../src/warning-capture.js';
+import { setProcessTracker } from '../src/warning-capture.js';
 import { loadConfig, saveProjectConfig } from '../src/config-loader.js';
-import { checkVulnerabilities } from '../src/security-checker.js';
-import { getCacheManager } from '../src/enhanced-cache.js';
+import { getCacheManager, getExistingCacheManager } from '../src/enhanced-cache.js';
 import {
   updateAvailableSession,
   unusedSession,
@@ -36,8 +33,6 @@ import {
   latestSession,
   securitySession,
 } from '../src/ui-sessions.js';
-
-const require = createRequire(import.meta.url);
 
 // 글로벌 상태: 실행 중인 프로세스 추적
 let runningProcesses = new Set();
@@ -103,6 +98,7 @@ function renderAnalysisSummary({
   notInstalledCount,
   latestCount,
   securitySummary,
+  securityStatus,
 }) {
   const hasSecurityIssues = securitySummary.total > 0;
   const formatRow = (label, count, detail, color = chalk.white) => {
@@ -119,10 +115,16 @@ function renderAnalysisSummary({
   formatRow('Current', latestCount, 'Already up-to-date', chalk.green);
   formatRow(
     'Security',
-    hasSecurityIssues ? `${securitySummary.total} advisories` : '0 advisories',
+    securityStatus !== 'completed'
+      ? securityStatus
+      : hasSecurityIssues
+        ? `${securitySummary.total} advisories`
+        : '0 advisories',
     hasSecurityIssues
       ? `${securitySummary.direct || 0} direct, ${securitySummary.transitive || 0} transitive`
-      : 'No known advisories',
+      : securityStatus === 'completed'
+        ? 'No known advisories'
+        : 'Security was not verified',
     hasSecurityIssues ? chalk.red.bold : chalk.green,
   );
 }
@@ -147,7 +149,9 @@ async function resolveConflictingActions(actions) {
   const resolved = [...actions];
 
   for (const [packageName, packageActions] of byPackage.entries()) {
-    const securityUpdate = packageActions.find((action) => action.action === 'update' && action.packageName);
+    const securityUpdate = packageActions.find(
+      (action) => action.action === 'update' && action.packageName,
+    );
     const remove = packageActions.find((action) => action.action === 'remove');
 
     if (!securityUpdate || !remove) continue;
@@ -195,13 +199,26 @@ async function resolveConflictingActions(actions) {
     }
   }
 
-  return resolved;
+  return resolved.filter((action, index) => {
+    const name = getActionPackageName(action);
+    const peers = resolved.filter((other) => getActionPackageName(other) === name);
+    const preferred =
+      peers.find((other) => other.action === 'remove') ||
+      peers.find((other) => other.action === 'update' && other.packageName) ||
+      peers.find((other) => other.action === 'update') ||
+      peers[0];
+    return action === preferred && resolved.indexOf(action) === index;
+  });
 }
 
 async function confirmActions(actions) {
   const removes = actions.filter((action) => action.action === 'remove');
-  const securityUpdates = actions.filter((action) => action.action === 'update' && action.packageName);
-  const regularUpdates = actions.filter((action) => action.action === 'update' && !action.packageName);
+  const securityUpdates = actions.filter(
+    (action) => action.action === 'update' && action.packageName,
+  );
+  const regularUpdates = actions.filter(
+    (action) => action.action === 'update' && !action.packageName,
+  );
   const installs = actions.filter((action) => action.action === 'install');
 
   console.log('\n' + chalk.cyan.bold('Review Actions'));
@@ -211,11 +228,19 @@ async function confirmActions(actions) {
   }
   if (securityUpdates.length > 0) {
     console.log(chalk.yellow.bold(`  Security updates (${securityUpdates.length})`));
-    securityUpdates.forEach((action) => console.log(chalk.yellow(`    - ${action.packageName} (${action.priority})`)));
+    securityUpdates.forEach((action) =>
+      console.log(
+        chalk.yellow(
+          `    - ${action.packageName} → ${action.latestVersion} (${action.priority})${action.requiresConfirmation ? ' [range/major change]' : ''}`,
+        ),
+      ),
+    );
   }
   if (regularUpdates.length > 0) {
     console.log(chalk.cyan.bold(`  Updates (${regularUpdates.length})`));
-    regularUpdates.forEach((action) => console.log(chalk.cyan(`    - ${action.name} → ${action.latestVersion}`)));
+    regularUpdates.forEach((action) =>
+      console.log(chalk.cyan(`    - ${action.name} → ${action.latestVersion}`)),
+    );
   }
   if (installs.length > 0) {
     console.log(chalk.cyan.bold(`  Install (${installs.length})`));
@@ -224,7 +249,7 @@ async function confirmActions(actions) {
 
   const confirmed = await confirm({
     message: `Proceed with ${actions.length} action(s)?`,
-    initialValue: true,
+    initialValue: false,
   });
 
   if (isCancel(confirmed) || !confirmed) {
@@ -244,40 +269,39 @@ async function gracefulExit(signal = 'SIGINT') {
 
   console.log(chalk.yellow(`\n⚠️  Received ${signal}. Cleaning up...`));
 
-  // 실행 중인 모든 자식 프로세스 종료
-  if (runningProcesses.size > 0) {
-    console.log(chalk.yellow(`🛑 Terminating ${runningProcesses.size} running process(es)...`));
-    
-    for (const childProcess of runningProcesses) {
-      try {
-        if (childProcess && !childProcess.killed) {
-          childProcess.kill('SIGTERM');
-          // 강제 종료를 위한 타임아웃
-          setTimeout(() => {
-            if (!childProcess.killed) {
-              childProcess.kill('SIGKILL');
-            }
-          }, 3000); // 3초 후 강제 종료
-        }
-      } catch (error) {
-        // 프로세스 종료 중 에러 무시
-      }
-    }
-    runningProcesses.clear();
-  }
+  await Promise.all(
+    [...runningProcesses].map(
+      (child) =>
+        new Promise((resolve) => {
+          if (child.exitCode !== null || child.signalCode !== null) {
+            resolve();
+            return;
+          }
+          const force = setTimeout(() => {
+            if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+          }, 3000);
+          child.once('close', () => {
+            clearTimeout(force);
+            resolve();
+          });
+          child.kill('SIGTERM');
+        }),
+    ),
+  );
+  // Let the interrupted apply path persist its final checkpoint before exiting.
+  await new Promise((resolve) => setImmediate(resolve));
 
   // 캐시 정리
   try {
-    const cacheManager = getCacheManager();
-    await cacheManager.close();
-  } catch (error) {
+    await getExistingCacheManager()?.close();
+  } catch {
     // 캐시 정리 실패는 무시
   }
 
   console.log(chalk.blue('🧹 Cleanup complete. Exiting...'));
   outro(chalk.red('Packmate interrupted! 👋'));
-  
-  process.exit(signal === 'SIGTERM' ? 0 : 130); // Ctrl+C는 130 exit code
+
+  process.exit(signal === 'SIGTERM' ? 143 : signal === 'SIGINT' ? 130 : 1); // Ctrl+C는 130 exit code
 }
 
 /**
@@ -286,10 +310,10 @@ async function gracefulExit(signal = 'SIGINT') {
 function setupSignalHandlers() {
   // Ctrl+C (SIGINT)
   process.on('SIGINT', () => gracefulExit('SIGINT'));
-  
-  // Termination signal (SIGTERM) 
+
+  // Termination signal (SIGTERM)
   process.on('SIGTERM', () => gracefulExit('SIGTERM'));
-  
+
   // Windows에서 CTRL+BREAK (SIGBREAK)
   if (process.platform === 'win32') {
     process.on('SIGBREAK', () => gracefulExit('SIGBREAK'));
@@ -301,222 +325,89 @@ function setupSignalHandlers() {
     gracefulExit('uncaughtException');
   });
 
-  process.on('unhandledRejection', (reason, promise) => {
+  process.on('unhandledRejection', (reason) => {
     console.error(chalk.red('💥 Unhandled Promise Rejection:'), reason);
     gracefulExit('unhandledRejection');
   });
 }
 
-/**
- * 설치된 패키지의 현재 버전을 가져옵니다
- */
-function getCurrentVersion(dep) {
-  // 방법 1: 표준 node_modules 위치 확인 (npm, yarn, pnpm의 node-linker=hoisted에서 작동)
-  try {
-    const pkgPath = path.resolve(process.cwd(), 'node_modules', dep, 'package.json');
-    if (fs.existsSync(pkgPath)) {
-      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-      return pkg.version;
-    }
-  } catch (err) {
-    // 다음 방법으로 계속
-  }
-
-  // 방법 2: pnpm의 .pnpm 디렉토리 확인 (node-linker=isolated인 pnpm용)
-  try {
-    const pnpmDir = path.resolve(process.cwd(), 'node_modules', '.pnpm');
-    if (fs.existsSync(pnpmDir)) {
-      const entries = fs.readdirSync(pnpmDir);
-      // @clack/prompts 같은 스코프 패키지 처리
-      const depName = dep.replace('/', '+');
-      const found = entries.find((f) => f.startsWith(depName + '@'));
-      if (found) {
-        const pkgPath = path.resolve(pnpmDir, found, 'node_modules', dep, 'package.json');
-        if (fs.existsSync(pkgPath)) {
-          const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-          return pkg.version;
-        }
-      }
-    }
-  } catch (err) {
-    // 다음 방법으로 계속
-  }
-
-  // 방법 3: require.resolve 시도 (일부 ESM 시나리오에서는 작동하지 않을 수 있음)
-  try {
-    const mainPath = require.resolve(`${dep}/package.json`, { paths: [process.cwd()] });
-    if (mainPath && fs.existsSync(mainPath)) {
-      const pkg = JSON.parse(fs.readFileSync(mainPath, 'utf-8'));
-      return pkg.version;
-    }
-  } catch (err) {
-    // 패키지를 찾을 수 없음
-  }
-
-  return null;
-}
-
-/**
- * 선언되었지만 설치되지 않은 패키지 목록을 가져옵니다
- */
-function getNotInstalledPackages() {
-  const pkgPath = path.resolve(process.cwd(), 'package.json');
-  if (!fs.existsSync(pkgPath)) return [];
-
-  const pkgJson = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-  const allDeps = { ...pkgJson.dependencies, ...pkgJson.devDependencies };
-  const notInstalled = [];
-
-  for (const dep of Object.keys(allDeps)) {
-    const version = getCurrentVersion(dep);
-    if (!version) {  // null은 찾을 수 없음을 의미
-      notInstalled.push(dep);
-    }
-  }
-
-  return notInstalled;
-}
-
 async function main() {
-  // 신호 핸들러 설정 (가장 먼저)
   setupSignalHandlers();
-
-  // 프로세스 추적 설정
   setProcessTracker({
-    onStart: (child) => {
-      runningProcesses.add(child);
-    },
-    onEnd: (child) => {
-      runningProcesses.delete(child);
-    }
+    onStart: (child) => runningProcesses.add(child),
+    onEnd: (child) => runningProcesses.delete(child),
   });
+  if (await runCliMode(process.argv.slice(2))) return;
+  if (!process.stdin.isTTY || !process.stdout.isTTY)
+    throw new Error('Interactive terminal required. No changes were made.');
 
   intro(chalk.cyan('📦 Packmate: Dependency Updates & Cleanup'));
 
   // 설정 로드
   const config = loadConfig();
 
-  // node_modules 확인
-  const nodeModulesPath = path.resolve(process.cwd(), 'node_modules');
-  if (!fs.existsSync(nodeModulesPath)) {
-    note(
-      chalk.yellow(
-        '⚠️  The node_modules directory is missing. Please install dependencies first (npm/yarn/pnpm install).',
-      ),
-      'Warning',
-    );
-    process.exit(0);
-  }
-
   const packageManager = await resolvePackageManager(config);
+  const beforeAnalysis = await snapshotProject(process.cwd());
   const analysisSpinner = spinner();
-
-  // 1. 미사용 패키지 먼저 분석 (업데이트 필터링용)
-  analysisSpinner.start('Scanning project files...');
-  const unused_precinct = await runUnusedCheck({ withUsedList: true });
-
-  // depcheck로 교차 검증
-  analysisSpinner.message('Checking dependency usage...');
-  const depcheckResult = await depcheck(process.cwd(), {
-    ignoreDirs: ['node_modules', 'backup', 'dist', 'build', 'coverage', '.git', '.packmate'],
-  });
-  const unused_depcheck = depcheckResult.dependencies || [];
-
-  // 신뢰도별 분류
-  const bothUnused = unused_precinct.unused.filter((x) => unused_depcheck.includes(x));
-  const onlyPrecinct = unused_precinct.unused.filter((x) => !unused_depcheck.includes(x));
-  const onlyDepcheck = unused_depcheck.filter((x) => !unused_precinct.unused.includes(x));
-
-  // 필터링을 위한 모든 미사용 패키지 이름 가져오기
-  const allUnusedNames = [...bothUnused, ...onlyPrecinct, ...onlyDepcheck];
-
-  // 2. 업데이트 가능한 패키지 분석 (미사용 패키지 제외)
-  analysisSpinner.message('Checking available updates...');
-  const allUpdateCandidates = await getUpdateCandidates(packageManager, {
-    showProgress: config.ui?.showProgress === true,
-  });
-
-  // 업데이트 후보에서 미사용 패키지 필터링
-  const updateCandidates = allUpdateCandidates.filter(
-    (candidate) => !allUnusedNames.includes(candidate.name)
+  analysisSpinner.start('Analyzing dependencies, usage evidence and security plans...');
+  let report;
+  try {
+    report = await analyzeProject({ packageManager, readOnly: false });
+  } finally {
+    analysisSpinner.stop('Project analyzed');
+  }
+  const project = report.projects[0];
+  const unusedPackages = project.usage.entries
+    .filter(
+      (entry) =>
+        entry.status === 'candidate' &&
+        ['registry', 'tag'].includes(
+          project.dependencies.find((dep) => dep.name === entry.name)?.kind,
+        ),
+    )
+    .map((entry) => ({
+      ...entry,
+      current: project.dependencies.find((dep) => dep.name === entry.name)?.currentVersion,
+      hint: entry.reasons.join('; '),
+    }));
+  const unusedNames = new Set(unusedPackages.map((entry) => entry.name));
+  const updateCandidates = project.dependencies.filter(
+    (entry) =>
+      entry.status === 'update' &&
+      entry.kind === 'registry' &&
+      !unusedNames.has(entry.name) &&
+      !project.securityPlans.some((plan) => plan.name === entry.name && plan.status === 'blocked'),
   );
-
-  const unusedPackages = [
-    ...bothUnused.map((dep) => ({
-      name: dep,
-      current: getCurrentVersion(dep),
-      confidence: 'high',
-      hint: 'Detected by both precinct and depcheck',
-    })),
-    ...onlyPrecinct.map((dep) => ({
-      name: dep,
-      current: getCurrentVersion(dep),
-      confidence: 'medium',
-      hint: 'Detected by precinct only',
-    })),
-    ...onlyDepcheck.map((dep) => ({
-      name: dep,
-      current: getCurrentVersion(dep),
-      confidence: 'medium',
-      hint: 'Detected by depcheck only',
-    })),
-  ];
-
-  // 3. 미설치 패키지 확인
-  analysisSpinner.message('Checking install state...');
-  const notInstalled = getNotInstalledPackages();
-
-  const notInstalledPackages = notInstalled.map((dep) => ({
-    name: dep,
-    current: '-',
-    latest: '-',
-  }));
-
-  // 4. 보안 취약성 검사 (설정에 따라)
-  let securityResults = {
-    vulnerabilities: [],
-    classified: {},
-    grouped: {},
-    summary: { total: 0, direct: 0, transitive: 0, critical: 0, high: 0, moderate: 0, low: 0, info: 0 },
-  };
-  
-  if (config.security?.enabled !== false) {
-    try {
-      analysisSpinner.message('Checking security advisories...');
-      securityResults = await checkVulnerabilities();
-    } catch (error) {
-      analysisSpinner.stop('Project analyzed');
-      console.warn(chalk.dim('Security scan could not be completed. Continuing...'));
-    }
-  } else {
-    analysisSpinner.stop('Project analyzed');
-    console.log(chalk.dim('🔒 Security scan disabled in config'));
-  }
-  if (config.security?.enabled !== false) {
-    analysisSpinner.stop('Project analyzed');
-  }
-
-  // 5. 최신 버전 패키지
-  const pkgJson = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf-8'));
-  const declared = { ...pkgJson.dependencies, ...pkgJson.devDependencies };
-  const latestPackages = [];
-
-  for (const dep of Object.keys(declared)) {
-    const isUpdatable = updateCandidates.some((c) => c.name === dep);
-    const isUnused = unusedPackages.some((u) => u.name === dep);
-    const isNotInstalled = notInstalledPackages.some((n) => n.name === dep);
-
-    if (!isUpdatable && !isUnused && !isNotInstalled) {
-      const current = getCurrentVersion(dep);
-      if (current && current !== '-') {
-        latestPackages.push({
-          name: dep,
-          current,
-          latest: current,
-        });
-      }
-    }
-  }
+  const notInstalledPackages = project.dependencies
+    .filter(
+      (entry) =>
+        !entry.installed && ['registry', 'tag'].includes(entry.kind) && entry.status !== 'ignored',
+    )
+    .map((entry) => ({ ...entry, current: '-', latest: '-' }));
+  const latestPackages = project.dependencies
+    .filter((entry) => entry.status === 'current')
+    .map((entry) => ({
+      name: entry.name,
+      current: entry.currentVersion,
+      latest: entry.latestVersion,
+    }));
+  const securityResults = report.security;
+  const securityStatus = securityResults.status;
+  const readyNames = new Set(
+    project.securityPlans.filter((plan) => plan.status === 'ready').map((plan) => plan.name),
+  );
+  for (const plan of project.securityPlans.filter((plan) => plan.status === 'blocked'))
+    note(`${plan.name}: ${plan.reason}`, 'Security: manual review required');
+  if (report.summary.unknown)
+    note(
+      `${report.summary.unknown} dependencies could not be verified. See --report --json for reasons.`,
+      'Unknown versions',
+    );
+  if (project.usage.status !== 'completed')
+    note(
+      'Some files could not be parsed. Affected removal candidates are suppressed; --report --json includes details.',
+      'Incomplete usage analysis',
+    );
 
   renderAnalysisSummary({
     updateCount: updateCandidates.length,
@@ -524,6 +415,7 @@ async function main() {
     notInstalledCount: notInstalledPackages.length,
     latestCount: latestPackages.length,
     securitySummary: securityResults.summary,
+    securityStatus,
   });
 
   let selectedActions = [];
@@ -543,10 +435,25 @@ async function main() {
 
     // 1. 보안 취약성 세션
     if (securityResults.summary.total > 0) {
-      const securitySelected = await securitySession(securityResults, config, {
-        excludePackages: selectedRemoveNames,
-      });
-      selectedActions.push(...securitySelected);
+      const securitySelected = await securitySession(
+        {
+          ...securityResults,
+          vulnerabilities: securityResults.vulnerabilities.filter((vuln) =>
+            readyNames.has(vuln.packageName),
+          ),
+        },
+        config,
+        {
+          excludePackages: selectedRemoveNames,
+        },
+      );
+      selectedActions.push(
+        ...securitySelected.map((action) => ({
+          ...action,
+          security: true,
+          ...project.securityPlans.find((plan) => plan.name === action.packageName),
+        })),
+      );
     }
 
     // 2. 업데이트 가능 세션
@@ -566,10 +473,7 @@ async function main() {
       await latestSession(latestPackages, config);
     }
   } else {
-    note(
-      chalk.yellow('⚠️  groupSessions is disabled in config. Refer to packmate.js.backup for legacy mode.'),
-      'Info',
-    );
+    throw new Error('groupSessions=false is unsupported. Enable it or use --report.');
   }
 
   // === 작업 실행 ===
@@ -593,136 +497,52 @@ async function main() {
     return;
   }
 
-  // 보안 업데이트 실행 (우선순위: critical > high > moderate > low)
-  const securityUpdates = selectedActions.filter((a) => a.action === 'update' && a.packageName);
-  const priorityOrder = ['critical', 'high', 'moderate', 'low'];
-  
-  for (const priority of priorityOrder) {
-    const priorityUpdates = securityUpdates.filter(a => a.priority === priority);
-    
-    for (const item of priorityUpdates) {
-      let cmd, args;
-      switch (packageManager) {
-        case 'pnpm':
-          cmd = 'pnpm';
-          args = ['add', `${item.packageName}@latest`];
-          break;
-        case 'yarn':
-          cmd = 'yarn';
-          args = ['add', `${item.packageName}@latest`];
-          break;
-        case 'npm':
-        default:
-          cmd = 'npm';
-          args = ['install', `${item.packageName}@latest`];
-          break;
-      }
-
-      note(chalk.red(`🛡️  Security Update [${priority.toUpperCase()}]: ${cmd} ${args.join(' ')}`), 'Security Command');
-      const { code, warnings, terminated, signal } = await runWithWarningCapture(cmd, args);
-
-      // 사용자가 중단한 경우 즉시 종료
-      if (terminated) {
-        console.log(chalk.yellow(`\n⚠️  Security update interrupted by ${signal}`));
-        return; // main 함수 종료
-      }
-
-      if (code === 0) {
-        note(chalk.green(`✔️  Security update complete: ${item.packageName} (${priority})`), 'Security Success');
-      } else {
-        note(chalk.red(`❌ Security update failed: ${item.packageName} (${priority})`), 'Security Failed');
-      }
-
-      if (warnings.length) {
-        note(chalk.yellow(`⚠️  Warnings:\n${warnings.map((w) => '  - ' + w).join('\n')}`), 'Warning');
-      }
-    }
+  const plan = createPlan(report, beforeAnalysis);
+  plan.actions = selectedActions.map((action) => ({
+    ...action,
+    project: '.',
+    security: action.security || Boolean(report.security.grouped[getActionPackageName(action)]),
+  }));
+  const execution = await applyPlan(process.cwd(), plan, {
+    onCommand: ({ cmd, args }) => note(chalk.cyan(`${cmd} ${args.join(' ')}`), 'Command'),
+    onResult: ({ action, code, warnings = [] }) => {
+      note(
+        code === 0
+          ? chalk.green(`Completed: ${getActionPackageName(action)}`)
+          : chalk.red(`Failed: ${getActionPackageName(action)}`),
+        'Result',
+      );
+      if (warnings.length) note(warnings.join('\n'), 'Warnings');
+    },
+  });
+  const results = execution.results;
+  if (execution.checkpointId)
+    note(
+      `Restore tracked files with: packmate --restore ${execution.checkpointId}`,
+      'Recovery checkpoint',
+    );
+  if (execution.security) {
+    note(
+      `Security recheck: ${execution.security.status}; ${execution.security.summary.total} advisories`,
+      'Verification',
+    );
+    if (execution.security.status !== 'completed' || execution.security.summary.total)
+      process.exitCode = 1;
   }
-
-  // 일반 업데이트 실행
-  const toUpdate = selectedActions.filter((a) => a.action === 'update' && !a.packageName);
-  for (const item of toUpdate) {
-    let cmd, args;
-    switch (packageManager) {
-      case 'pnpm':
-        cmd = 'pnpm';
-        args = ['add', `${item.name}@${item.latestVersion}`];
-        break;
-      case 'yarn':
-        cmd = 'yarn';
-        args = ['add', `${item.name}@${item.latestVersion}`];
-        break;
-      case 'npm':
-      default:
-        cmd = 'npm';
-        args = ['install', `${item.name}@${item.latestVersion}`];
-        break;
-    }
-
-    note(chalk.cyan(`${cmd} ${args.join(' ')}`), 'Command');
-    const { code, warnings, terminated, signal } = await runWithWarningCapture(cmd, args);
-
-    // 사용자가 중단한 경우 즉시 종료
-    if (terminated) {
-      console.log(chalk.yellow(`\n⚠️  Update interrupted by ${signal}`));
-      return; // main 함수 종료
-    }
-
-    if (code === 0) {
-      note(chalk.green(`✔️  Update complete: ${item.name}@${item.latestVersion}`), 'Success');
-    } else {
-      note(chalk.red(`❌ Update failed: ${item.name}@${item.latestVersion}`), 'Failed');
-    }
-
-    if (warnings.length) {
-      note(chalk.yellow(`⚠️  Warnings:\n${warnings.map((w) => '  - ' + w).join('\n')}`), 'Warning');
-    }
-  }
-
-  // 제거 실행
-  const toRemove = selectedActions.filter((a) => a.action === 'remove').map((a) => a.name);
-  if (toRemove.length > 0) {
-    try {
-      uninstallPackages(toRemove, packageManager);
-    } catch (error) {
-      if (error.signal === 'SIGTERM' || error.signal === 'SIGINT') {
-        console.log(chalk.yellow(`\n⚠️  Package removal interrupted by ${error.signal}`));
-        return; // main 함수 종료
-      }
-      // 다른 에러는 계속 진행
-    }
-  }
-
-  // 설치 실행
-  const toInstall = selectedActions.filter((a) => a.action === 'install').map((a) => a.name);
-  if (toInstall.length > 0) {
-    try {
-      installPackages(toInstall, packageManager);
-    } catch (error) {
-      if (error.signal === 'SIGTERM' || error.signal === 'SIGINT') {
-        console.log(chalk.yellow(`\n⚠️  Package installation interrupted by ${error.signal}`));
-        return; // main 함수 종료
-      }
-      // 다른 에러는 계속 진행
-    }
-  }
-
-  // 최종 요약 - console.log를 사용하여 더 나은 포맷팅
-  const securityUpdateCount = securityUpdates.length;
-  console.log('\n' + chalk.green.bold('✅ Complete:'));
-  if (securityUpdateCount > 0) {
-    console.log(chalk.green(`   Security:  ${securityUpdateCount} (vulnerabilities addressed)`));
-  }
-  console.log(chalk.green(`   Updated:   ${toUpdate.length}`));
-  console.log(chalk.green(`   Removed:   ${toRemove.length}`));
-  console.log(chalk.green(`   Installed: ${toInstall.length}`));
+  const completed = results.filter((result) => result.code === 0 && !result.terminated);
+  const failed = results.length - completed.length;
+  console.log(
+    `\nCompleted: ${completed.length}; Failed: ${failed}; Skipped: ${selectedActions.length - results.length}`,
+  );
+  if (failed) process.exitCode = 1;
+  // An update command succeeding does not prove that advisories were resolved.
 
   // Smart Cache 성능 통계 (설정에 따라)
   if (config.cache?.showStats !== false) {
     try {
       const cacheManager = getCacheManager();
       const cacheStats = await cacheManager.getDetailedStats();
-      
+
       if (cacheStats.performance.totalRequests > 0) {
         console.log('\n' + chalk.blue.bold('📊 Cache Performance:'));
         console.log(chalk.blue(`   Hit Rate:      ${cacheStats.performance.hitRate}`));
@@ -731,19 +551,23 @@ async function main() {
         console.log(chalk.blue(`   Network Hits:  ${cacheStats.performance.breakdown.network}`));
         console.log(chalk.dim(`   Cache Size:    ${cacheStats.disk.diskSize}`));
       }
-      
+
       if (config.cache?.autoCleanup !== false) {
         await cacheManager.cleanup();
       }
-    } catch (error) {
+    } catch {
       // 캐시 통계 오류는 무시
     }
   }
 
-  outro(chalk.bold.cyan('Packmate complete! 🎉'));
+  outro(
+    chalk.bold.cyan(failed ? 'Packmate stopped after a failed action.' : 'Packmate complete! 🎉'),
+  );
 }
 
 main().catch((error) => {
-  console.error(chalk.red('Error occurred:'), error);
-  process.exit(1);
+  if (process.argv.includes('--json'))
+    console.log(JSON.stringify({ schemaVersion: 1, status: 'failed', error: error.message }));
+  console.error(chalk.red(`Error: ${error.message}`));
+  process.exitCode = process.argv.length > 2 ? 2 : 1;
 });

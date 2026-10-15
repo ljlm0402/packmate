@@ -58,32 +58,33 @@ It supports **npm**, **pnpm**, and **yarn**. With an intuitive interactive UI an
 
 ## 🤖 Why Packmate?
 
-- **⚡ Performance**: Faster repeat runs with caching and parallel analysis
+- **⚡ Performance**: Faster repeat runs with caching and asynchronous analysis
 - **🎯 Accuracy**: Unused package detection with dev tool intelligence and cross-validation
 - **🛡️ Safety**: Smart fallback for package managers, unused packages excluded from updates
 - **🎨 Clarity**: Grouped UI sessions (Patch/Minor/Major) with color-coded updates
-- **🔧 Flexibility**: Full configuration support via `packmate.config.json`
+- **🔧 Flexibility**: Project-level configuration via `packmate.config.json`
 - **🌍 Modern**: Clean, professional English interface with intuitive workflows
 
 ## 🚀 Features
 
 ### Performance & Optimization
+
 - **3-Level Caching System**: Memory → Disk (1hr TTL) → Network
   - First run: Standard speed
   - Second run: Faster with cached registry data
-- **Worker Pool Processing**: Multi-core CPU utilization for file scanning (**2-4x faster**)
-- **Compressed Caching**: Experimental Brotli-based cache storage
-- **Predictive Caching**: Experimental package prediction and pre-loading
-- **Adaptive Concurrency**: Dynamic request throttling based on CPU cores (8-16 concurrent)
+- **⚡ Concurrent Processing**: Asynchronous file scanning (not worker-thread CPU parallelism)
+- **Adaptive Concurrency**: Dynamic request throttling based on CPU cores (registry cap: 12; security metadata cap: 4)
 
 ### Security Awareness
+
 - **Security Advisories**:
-  - npm audit based advisory detection
+  - npm/pnpm/Yarn audit adapters
   - Direct/transitive advisory distinction
   - Security update candidates in the interactive flow
   - Transitive advisories explained without misleading direct selection
 
 ### Smart Detection
+
 - **Enhanced Unused Detection**:
   - Dynamic import detection: `import('module')`
   - Conditional require detection: `try-catch`, `if` blocks
@@ -97,9 +98,10 @@ It supports **npm**, **pnpm**, and **yarn**. With an intuitive interactive UI an
 - **Installation Detection**: Finds declared but not installed packages
 
 ### UI/UX Excellence
+
 - **Grouped UI Sessions**:
-  - 🔹 **Patch Updates** (Green): Bug fixes, safe to update
-  - 🔸 **Minor Updates** (Yellow): New features, backward compatible
+  - 🔹 **Patch Updates** (Green): Bug fixes; review the changes
+  - 🔸 **Minor Updates** (Yellow): Feature changes; review compatibility
   - 🔶 **Major Updates** (Red): Breaking changes, requires review
   - 🗑️ **Unused Packages**: High/Medium confidence levels
   - 📥 **Not Installed**: Missing declared dependencies
@@ -114,15 +116,30 @@ It supports **npm**, **pnpm**, and **yarn**. With an intuitive interactive UI an
   - Compact summary and final action review
 
 ### Configuration & Flexibility
+
 - **Smart Package Manager Detection**:
   - Auto-detects from lock files (pnpm-lock.yaml, yarn.lock, package-lock.json)
   - Verifies installation status
   - Auto-fallback to available manager with helpful tips
 - **Configurable Options**:
-  - Custom ignore patterns (glob support)
+  - Custom package ignore patterns (`*` wildcards)
   - Analysis modes (conservative/moderate/aggressive)
-  - UI customization (default selections, color schemes)
+  - Default selections for interactive sessions
   - Cache settings (duration, location)
+
+### 📊 Reports & Automation
+
+- **Read-only analysis**: Text/JSON reports, CI exit codes, and offline mode
+- **Usage evidence**: Reference files, exclusion reasons, parsing errors, and confidence
+- **Conservative cleanup**: Missing source files or incomplete analysis suppress removal proposals
+- **Workspace analysis**: Per-project results and local dependency edges for npm/Yarn/pnpm
+
+### 🛡️ Security Plans & Recovery
+
+- **Manager-specific audit**: Direct/transitive advisories for npm/pnpm/Yarn
+- **Minimal change proposals**: Prefer stable in-range fixes and check Node and known peer constraints
+- **Reviewable execution**: Plan/apply, input hashes, and stop-on-failure behavior
+- **Recovery checkpoints**: Restore manifests, lockfiles, and settings without overwriting later edits
 
 ## 💾 Installation
 
@@ -140,22 +157,21 @@ You can also run it instantly with:
 npx packmate
 ```
 
+The Yarn global-install example applies to Yarn Classic. To use the unreleased 2.3.0 source, run `npm ci` in the repository, then invoke its entry point from the target project:
+
+```sh
+node /path/to/packmate/bin/packmate.js --report
+```
+
 ## 📝 Usage
 
 ### Basic Usage
+
 From your project root, just run:
 
 ```sh
 packmate
 ```
-
-### Command Line Options
-
-```sh
-packmate
-```
-
-Packmate is intentionally interactive. Run it from your project directory and choose updates, removals, and security actions from the guided prompts.
 
 **Typical Workflow Example:**
 
@@ -193,7 +209,7 @@ Security Risk: High (1)
 
 Review Actions
   Security updates (1)
-    - lodash (high)
+    - lodash → verified target (high)
   Updates (2)
     - fs-extra → 11.3.5
     - js-yaml → 4.1.1
@@ -206,79 +222,205 @@ No changes were made.
 └  Packmate complete! 🎉
 ```
 
+The screen above illustrates the workflow. Final confirmation defaults to **No**. Missing-package installation preserves declared specs and dependency sections; execution stops after a failure.
+
+### 📊 Reports & CI
+
+```sh
+packmate --report
+packmate --report --json
+packmate --report --offline --json
+packmate --ci --json > packmate-report.json
+```
+
+Report modes do not install packages, change manifests/lockfiles/settings, or write Packmate disk caches. Offline analysis retains `unknown` versions and `unavailable` security results. External package managers may maintain their own user-level logs.
+
+#### CI exit codes
+
+| Code | Meaning                                                                            |
+| ---- | ---------------------------------------------------------------------------------- |
+| `0`  | No findings under the enabled policy                                               |
+| `1`  | Updates, advisories, or missing packages found                                     |
+| `2`  | Incomplete analysis, unavailable audit, unknown versions, or a command/input error |
+
+Incomplete results take precedence over findings. Explicitly ignored or unsupported dependencies do not fail update/missing checks; `ignorePatterns` does not hide security advisories. Cleanup suggestions alone do not fail CI. Ordinary `--report` returns `0` after analysis even when findings exist; command/input errors return `2`.
+
+#### JSON output
+
+Successful output uses `schemaVersion: 1` with `packageManager`, `mode`, `summary`, `projects`, `workspaceGraph`, and `security`. Each project includes dependency states, usage evidence/errors, and security proposals.
+
+- Dependency states: `update`, `current`, `unknown`, `ignored`, `unsupported`.
+- Usage states: `used`, `ignored`, `candidate`, `uncertain`; coverage distinguishes source files from manifest-only input.
+- Security states: `completed`, `disabled`, `unavailable`.
+- Security proposal states: `ready`, `blocked`, `not-affected`.
+
+A command that cannot complete analysis emits `schemaVersion: 1`, `status: "failed"`, and an `error` message when `--json` is requested. Advisory counts describe affected package/advisory pairs, not necessarily unique advisory IDs.
+
+### 🛡️ Security Update Planning
+
+Packmate reads audit data using the selected package manager, including Yarn Classic JSONL and Yarn Berry's npm audit command. It preserves transitive `via` relationships instead of dropping indirectly affected direct packages.
+
+For a supported direct registry dependency, the planner searches stable, non-deprecated versions in ascending order. It prefers a fix inside the declared range and checks the current Node engine and known forward/reverse peer constraints. A required major/range change is flagged for review.
+
+Inherited advisories, incomplete ranges, or unverifiable compatibility remain `blocked`. Security actions are audited again after execution. A completed install command alone does not prove that advisories were resolved; full installation compatibility is still checked by the package manager.
+
+### 💾 Plan, Apply & Recovery
+
+```sh
+# Write a plan without changing dependencies.
+packmate --plan packmate-plan.json
+
+# Review the file, then confirm execution.
+packmate --apply packmate-plan.json
+
+# Use the checkpoint ID printed by apply.
+packmate --restore CHECKPOINT_ID
+```
+
+Plans include current/target versions, workspace paths, and snapshots of manifests, lockfiles, and project settings. Existing plan files are never overwritten. Generated plans prioritize verified security fixes and do not automatically remove unused packages.
+
+Apply validates every action and rejects changed, incomplete, or mismatched project snapshots before running a command. It saves recovery records under `.packmate/checkpoints/`. Restore refuses to overwrite edits made after execution.
+
+**Recovery restores tracked project files only.** It does not restore `node_modules` or lifecycle-script side effects. Reinstall with your package manager after restoring. Recovery is explicit; it is not automatic rollback. Incomplete checkpoints after a hard interruption cannot be restored automatically. Do not run concurrent apply/restore operations in the same project.
+
+For automation, explicitly authorize the operation with `--yes`:
+
+```sh
+packmate --apply packmate-plan.json --yes
+packmate --restore CHECKPOINT_ID --yes
+```
+
+### 🧩 Workspaces & Package Manager Selection
+
+Run from the monorepo root:
+
+```sh
+packmate --report --workspaces --json
+packmate --plan workspace-plan.json --workspaces
+packmate --apply workspace-plan.json
+```
+
+Packmate reads npm/Yarn `workspaces` arrays or `workspaces.packages`, and `pnpm-workspace.yaml` patterns. Reports include per-project results and declared local dependency edges. Local workspace dependencies are excluded from registry update and removal proposals. Operations execute in the target project directory.
+
+For unattended modes, manager selection uses `packmate.config.json` / the `packmate` field, then the manifest's `packageManager`, then lockfiles. Ambiguous lockfiles require an explicit preference. Interactive mode can prompt for a manager and offer to save it.
+
 ## ⚙️ Requirements
 
-- Node.js v18 or later
-- Supports npm, yarn, and pnpm
-- Works on Mac, Linux, and Windows
+- Node.js v18 or later (package metadata specifies npm v9 or later)
+- npm, Yarn, or pnpm for package operations and online audit
+- Interactive terminal for default mode; reports/CI support unattended execution
+- Tested on macOS with Node 18.14 and 22.16; Windows CI is configured but not confirmed
 
 ## 🔑 CLI Options
 
-No extra options needed—just run packmate in your project directory.
-All selections (update, remove, install) are interactive.
+| Command / option            | Purpose                                                        |
+| --------------------------- | -------------------------------------------------------------- |
+| `packmate`                  | Interactive analysis and action selection                      |
+| `--help`                    | Show available commands                                        |
+| `--report`                  | Read-only text report                                          |
+| `--json`                    | JSON output with `--report`, `--ci`, or `--plan`               |
+| `--ci`                      | Read-only report with policy exit codes                        |
+| `--offline`                 | Skip registry and audit calls; combine with a report/plan mode |
+| `--workspaces`              | Include declared workspaces; combine with a report/plan mode   |
+| `--plan <file>`             | Write a new update plan and show the analysis report           |
+| `--apply <file>`            | Confirm and execute a plan                                     |
+| `--restore <checkpoint-id>` | Confirm and restore tracked project files                      |
+| `--yes`                     | Explicit unattended confirmation for apply/restore only        |
+
+Choose one of `--plan`, `--apply`, and `--restore`. Apply/restore cannot be combined with report options; apply uses the workspace information already stored in the plan.
 
 ## ⚙️ Configuration
 
-Packmate supports configuration via `packmate.config.json` or the `packmate` field in your `package.json`.
+Set options in `packmate.config.json` or the `packmate` field of `package.json`. **The dedicated config file takes precedence.** Arrays replace the corresponding default arrays.
 
-### Example `packmate.config.json`:
+### Example `packmate.config.json`
 
 ```json
 {
-  "ignorePatterns": ["@types/*", "eslint-*"],
+  "packageManager": "npm",
+  "ignorePatterns": ["@types/*"],
   "analysisMode": {
-    "unused": "moderate",
+    "unused": "conservative",
     "devDeps": true
   },
   "ui": {
     "groupSessions": true,
-    "colorScheme": "auto",
     "defaultChecked": {
       "updateAvailable": true,
       "unused": false,
-      "notInstalled": true,
-      "latest": false
+      "notInstalled": true
     }
+  },
+  "security": {
+    "enabled": true,
+    "autoSelectCritical": true,
+    "autoSelectHigh": true,
+    "showLowPriority": false
   },
   "detection": {
     "dynamicImport": true,
     "conditionalRequire": true,
-    "ignoreUnused": [
-      "eslint",
-      "prettier",
-      "jest",
-      "webpack"
-    ]
+    "ignoreUnused": ["eslint", "prettier", "typescript"]
+  },
+  "cache": {
+    "enabled": true,
+    "memorySize": 1000,
+    "diskTTL": 3600000,
+    "showStats": true,
+    "autoCleanup": true
   }
 }
 ```
 
-### Configuration Options:
+### Configuration Options
 
-- **ignorePatterns**: Array of glob patterns to ignore packages (e.g., `["@types/*"]`)
-- **analysisMode.unused**: Detection mode - `"conservative"` | `"moderate"` | `"aggressive"`
-- **analysisMode.devDeps**: Whether to analyze devDependencies separately
-- **ui.groupSessions**: Enable grouped UI sessions (Patch/Minor/Major)
-- **ui.defaultChecked**: Default selection states for each package type
-- **detection.dynamicImport**: Enable dynamic import detection
-- **detection.conditionalRequire**: Enable conditional require detection
-- **detection.ignoreUnused**: List of packages to always ignore in unused detection
+| Setting                  | Behavior                                                                                                     |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `packageManager`         | Explicit `npm`, `pnpm`, or `yarn` preference                                                                 |
+| `ignorePatterns`         | Package-name exclusions for update/missing checks and cleanup; supports `*` wildcards                        |
+| `analysisMode.unused`    | `conservative` requires both scanners; `moderate` and `aggressive` currently share the same candidate policy |
+| `analysisMode.devDeps`   | Include development dependencies in unused analysis                                                          |
+| `ui.defaultChecked`      | Initial selections for update, removal, and missing-package sessions                                         |
+| `security.*`             | Enable audit and configure priority-session selections                                                       |
+| `detection.ignoreUnused` | Cleanup exclusions with `*` wildcards                                                                        |
+| `detection.ignorePaths`  | Source-scan exclusions; node_modules, .git, and .packmate remain excluded                                    |
+| `cache.*`                | Interactive registry-cache settings; `diskTTL` is in milliseconds                                            |
+
+Keep `ui.groupSessions` enabled for interactive use; disabling it is unsupported. Legacy fields such as `ui.colorScheme`, `security.sources`, and `cache.maxAge` do not currently provide separate behavior and are omitted from this example.
 
 ### Cache Management
 
-Packmate automatically caches registry responses for faster subsequent runs. Clear cache if needed:
+Interactive lookups use memory LRU → disk → registry, with a default one-hour TTL on both cache layers. File work is asynchronous, not worker-thread CPU parallelism. Registry concurrency is CPU-based and capped at 12; security metadata lookups are capped at 4. Report/CI modes bypass disk caching.
 
-```bash
-# Windows
-del /q %TEMP%\packmate-cache\*
+The default directory is `packmate-cache` inside Node's `os.tmpdir()`. Print the actual location rather than assuming a fixed path on macOS:
 
-# Linux/Mac
-rm -rf /tmp/packmate-cache/*
+```sh
+node -p "require('node:path').join(require('node:os').tmpdir(), 'packmate-cache')"
 ```
 
-Cache location:
-- Windows: `C:\Users\<user>\AppData\Local\Temp\packmate-cache`
-- Linux/Mac: `/tmp/packmate-cache`
+`cache.directory` overrides the cache path.
+
+## ⚠️ Current Limitations
+
+- Static analysis does not prove non-use for computed imports, framework conventions, or unsupported file formats.
+- npm aliases can be reported using their registry target, but applying alias/local/git specifiers is unsupported.
+- Direct lockfile paths/importers/selectors are supported; complete Yarn PnP installation detection and every patch/virtual lockfile form are not.
+- Workspace graphs describe declared local relationships; they do not provide a whole-graph compatibility solver or coordinated version migrations.
+- Compatibility was tested locally on macOS with Node 18.14 and 22.16. Windows CI is configured, but a successful Windows run has not been confirmed.
+
+## 🛠️ Development & Release Checks
+
+```sh
+npm ci
+npm test
+npm run lint
+npm run check:package
+npm run prepublishOnly
+```
+
+The last command runs tests, lint, package checks, and `npm audit --omit=dev --audit-level=high`; it does not publish. Unresolved high-severity findings block publication; the last security check recorded outstanding advisories. The release workflow also requires its Git tag to match `package.json`.
+
+See the [development notes](https://github.com/ljlm0402/packmate/blob/master/docs/DEVELOPMENT.ko.md), and the [release check](https://github.com/ljlm0402/packmate/blob/master/docs/RELEASE_CHECK_2.3.0.ko.md) for implementation details and validation scope.
 
 ## 🤝 Contributing
 

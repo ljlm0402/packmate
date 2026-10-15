@@ -1,31 +1,29 @@
 name: Publish to npm
-
 on:
   push:
     tags:
-      - 'v*.*.*' # e.g., v1.2.3
-
+      - 'v*.*.*'
 jobs:
   publish:
     name: Publish Package
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Use Node.js 20
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           registry-url: 'https://registry.npmjs.org/'
-
-      - name: Install pnpm
-        run: npm install -g pnpm
-
-      - name: Install Dependencies
-        run: pnpm install
-
+          cache: npm
+      - name: Verify release tag
+        run: test "$GITHUB_REF_NAME" = "v$(node -p 'require("./package.json").version')"
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Validate release
+        run: |
+          npm test
+          npm run lint
+          npm run check:package
+          npm audit --omit=dev --audit-level=high
       - name: Publish to npm
         run: npm publish --access public
         env:
